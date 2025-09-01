@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_flexible_bom_wizard,access_flexible_bom_wizard,model_flexible_bom_wizard,base.group_user,1,1,1,1
+access_flexible_bom_line_wizard,access_flexible_bom_line_wizard,model_flexible_bom_line_wizard,base.group_user,1,1,1,1
+access_flexible_bom_routing_wizard,access_flexible_bom_routing_wizard,model_flexible_bom_routing_wizard,base.group_user,1,1,1,1
+access_base_bom_setup_wizard,access_base_bom_setup_wizard,model_base_bom_setup_wizard,base.group_user,1,1,1,1
+access_base_bom_setup_line,access_base_bom_setup_line,model_base_bom_setup_line,base.group_user,1,1,1,1

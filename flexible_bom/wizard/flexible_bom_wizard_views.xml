@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Flexible BOM Wizard Form -->
+        <record id="flexible_bom_wizard_form" model="ir.ui.view">
+            <field name="name">flexible.bom.wizard.form</field>
+            <field name="model">flexible.bom.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Configurar BOM Flexible">
+                    <header>
+                        <button name="action_create_bom" string="Crear BOM" type="object" class="btn-primary" invisible="order_confirmed"/>
+                        <button name="action_create_bom" string="⚠️ Crear/Modificar BOM (Orden Confirmada)" type="object" class="btn-warning" invisible="not order_confirmed"/>
+                        <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                    </header>
+                    <sheet>
+                        <!-- Warning for confirmed orders -->
+                        <div class="alert alert-warning" role="alert" invisible="not order_confirmed">
+                            <strong>⚠️ Advertencia de Orden Confirmada:</strong>
+                            <field name="warning_message" readonly="1" nolabel="1"/>
+                            <br/><br/>
+                            <!-- Delivery cancellation section hidden as it's not working properly -->
+                            <div class="row" invisible="1">
+                                <div class="col-12">
+                                    <label for="cancel_existing_deliveries" class="o_form_label">Cancelar y Recrear Entregas Existentes</label>
+                                    <field name="cancel_existing_deliveries" widget="boolean_toggle"/>
+                                    <field name="cancel_existing_deliveries" widget="boolean_button" style="margin-left: 10px;" string="Backup Toggle"/>
+                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán automáticamente y se crearán nuevas basadas en el BOM modificado.</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Hidden fields -->
+                        <field name="order_confirmed" invisible="1"/>
+                        
+                        <group>
+                            <group>
+                                <field name="sale_order_line_id" readonly="1" string="Línea de Pedido"/>
+                                <field name="product_id" readonly="1" string="Producto"/>
+                                <field name="bom_type" widget="radio" string="Tipo de BOM"/>
+                                <div class="alert alert-info" role="alert" invisible="bom_type != 'phantom'">
+                                    <strong>Kit BOM:</strong> Los componentes se entregarán como artículos separados. No se requiere fabricación.
+                                </div>
+                                <div class="alert alert-info" role="alert" invisible="bom_type != 'normal'">
+                                    <strong>BOM de Fabricación:</strong> El producto se fabricará a partir de componentes usando operaciones.
+                                </div>
+                            </group>
+                            <group>
+                                <field name="base_bom_id" readonly="1" string="BOM Base"/>
+                                <field name="base_bom_info" readonly="1" string="Información de BOM Base" widget="text"/>
+                            </group>
+                        </group>
+                        
+                        <notebook>
+                            <page string="Componentes" name="components">
+                                <field name="bom_line_ids" nolabel="1" 
+                                       context="{'tree_view_ref': 'flexible_bom.flexible_bom_line_wizard_tree'}"/>
+                            </page>
+                            
+                            <page string="Operaciones" name="operations" invisible="bom_type == 'phantom'">
+                                <field name="routing_line_ids" nolabel="1"
+                                       context="{'tree_view_ref': 'flexible_bom.flexible_bom_routing_wizard_tree'}"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Flexible BOM Line Wizard Form -->
+        <record id="flexible_bom_line_wizard_form" model="ir.ui.view">
+            <field name="name">flexible.bom.line.wizard.form</field>
+            <field name="model">flexible.bom.line.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Agregar Componente">
+                    <sheet>
+                        <group>
+                            <field name="product_id" string="Producto"/>
+                            <field name="product_qty" string="Cantidad"/>
+                            <field name="product_uom_id" string="Unidad de Medida"/>
+                            <field name="sequence" string="Secuencia"/>
+                            <field name="wizard_id" invisible="1"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Flexible BOM Line Wizard Tree -->
+        <record id="flexible_bom_line_wizard_tree" model="ir.ui.view">
+            <field name="name">flexible.bom.line.wizard.list</field>
+            <field name="model">flexible.bom.line.wizard</field>
+            <field name="arch" type="xml">
+                <list editable="bottom">
+                    <field name="product_id" domain="[('type', 'in', ['product', 'consu'])]" string="Producto"/>
+                    <field name="product_qty" string="Cantidad"/>
+                    <field name="product_uom_id" string="UdM"/>
+                    <field name="sequence" string="Secuencia"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Flexible BOM Routing Wizard Tree -->
+        <record id="flexible_bom_routing_wizard_tree" model="ir.ui.view">
+            <field name="name">flexible.bom.routing.wizard.list</field>
+            <field name="model">flexible.bom.routing.wizard</field>
+            <field name="arch" type="xml">
+                <list editable="bottom">
+                    <field name="name"/>
+                    <field name="workcenter_id"/>
+                    <field name="time_cycle"/>
+                    <field name="sequence"/>
+                </list>
+            </field>
+        </record>
+    </data>
+</odoo>

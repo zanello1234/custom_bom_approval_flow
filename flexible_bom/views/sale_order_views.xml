@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Sale Order Form View -->
+        <record id="view_order_form_inherit" model="ir.ui.view">
+            <field name="name">sale.order.form.inherit.flexible.bom</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_form"/>
+            <field name="arch" type="xml">
+                <!-- Add fields to the tree view inside the form -->
+                <xpath expr="//field[@name='order_line']/list//field[@name='product_template_id']" position="after">
+                    <field name="show_flexible_bom_button" column_invisible="True"/>
+                    <field name="flexible_bom_id" column_invisible="True"/>
+                    <button name="action_create_flexible_bom" 
+                            type="object" 
+                            icon="fa-cogs" 
+                            title="Configurar BOM Flexible"
+                            invisible="not show_flexible_bom_button"
+                            class="btn-link"/>
+                </xpath>
+                
+                <!-- Add fields to the form view inside the order_line -->
+                <xpath expr="//field[@name='order_line']/form//field[@name='product_id']" position="after">
+                    <field name="show_flexible_bom_button" invisible="1"/>
+                    <field name="flexible_bom_id" invisible="1"/>
+                    <button name="action_create_flexible_bom" 
+                            type="object" 
+                            string="Configurar BOM Flexible"
+                            icon="fa-cogs"
+                            invisible="not show_flexible_bom_button"
+                            class="btn-secondary"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

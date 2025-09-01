@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <!-- Function to run integrity check and cleanup on module update -->
+        <function model="mrp.bom" name="_run_integrity_check_and_cleanup"/>
+    </data>
+</odoo>

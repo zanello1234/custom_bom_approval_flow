@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Simplified Base BOM Actions for Odoo 18 Compatibility -->
+        
+        <!-- Menu Item for Base BOM Management -->
+        <menuitem 
+            id="menu_base_bom_management"
+            name="Base BOM Management"
+            parent="mrp.menu_mrp_configuration"
+            sequence="15"/>
+
+        <!-- Menu Action: View Base BOMs -->
+        <record id="action_view_base_boms" model="ir.actions.act_window">
+            <field name="name">Base BOMs</field>
+            <field name="res_model">mrp.bom</field>
+            <field name="view_mode">tree,form</field>
+            <field name="domain">[('is_base_bom', '=', True)]</field>
+            <field name="context">{'default_is_base_bom': True}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Base BOM Management
+                </p>
+                <p>
+                    Here you can view and manage base BOMs. Each product should have exactly one base BOM.
+                </p>
+            </field>
+        </record>
+
+        <menuitem 
+            id="menu_view_base_boms"
+            name="Base BOMs"
+            parent="menu_base_bom_management"
+            action="action_view_base_boms"
+            sequence="10"/>
+            
+        <!-- View Flexible BOMs -->
+        <record id="action_view_flexible_boms" model="ir.actions.act_window">
+            <field name="name">Flexible BOMs</field>
+            <field name="res_model">mrp.bom</field>
+            <field name="view_mode">tree,form</field>
+            <field name="domain">[('is_flexible_bom', '=', True)]</field>
+            <field name="context">{'default_is_flexible_bom': True}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Flexible BOMs
+                </p>
+                <p>
+                    Here you can view all flexible BOMs created from base BOMs.
+                </p>
+            </field>
+        </record>
+
+        <menuitem 
+            id="menu_view_flexible_boms"
+            name="Flexible BOMs"
+            parent="menu_base_bom_management"
+            action="action_view_flexible_boms"
+            sequence="20"/>
+    </data>
+</odoo>

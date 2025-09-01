@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Tree view for Base BOM Setup Line -->
+        <record id="base_bom_setup_line_tree" model="ir.ui.view">
+            <field name="name">base.bom.setup.line.tree</field>
+            <field name="model">base.bom.setup.line</field>
+            <field name="type">list</field>
+            <field name="arch" type="xml">
+                <list>
+                    <field name="bom_id"/>
+                    <field name="bom_code"/>
+                    <field name="bom_type"/>
+                    <field name="component_count"/>
+                    <field name="is_current_base" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Base BOM Setup Wizard Form -->
+        <record id="base_bom_setup_wizard_form" model="ir.ui.view">
+            <field name="name">base.bom.setup.wizard.form</field>
+            <field name="model">base.bom.setup.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Setup Base BOM">
+                    <header>
+                        <button name="action_set_base_bom" string="Set as Base BOM" type="object" class="btn-primary"/>
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1>
+                                <field name="product_tmpl_id" readonly="1"/>
+                            </h1>
+                        </div>
+                        
+                        <div class="alert alert-info" role="alert">
+                            <strong>ℹ️ What is a Base BOM?</strong><br/>
+                            The Base BOM serves as the template for flexible BOMs and is used for manufacturing orders. 
+                            Only one BOM per product should be marked as base.
+                        </div>
+                        
+                        <group>
+                            <field name="selected_base_bom_id" 
+                                   options="{'no_create': True}" 
+                                   domain="[('product_tmpl_id', '=', product_tmpl_id), ('is_flexible_bom', '=', False)]"/>
+                        </group>
+                        
+                        <notebook>
+                            <page string="Available BOMs">
+                                <field name="existing_bom_ids" readonly="1" context="{'list_view_ref': 'flexible_bom.base_bom_setup_line_tree'}"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        <!-- Action for the wizard -->
+        <record id="action_base_bom_setup_wizard" model="ir.actions.act_window">
+            <field name="name">Setup Base BOM</field>
+            <field name="res_model">base.bom.setup.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+        </record>
+    </data>
+</odoo>

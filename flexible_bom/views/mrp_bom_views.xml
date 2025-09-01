@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- MRP BOM Form View -->
+        <record id="mrp_bom_form_view_inherit" model="ir.ui.view">
+            <field name="name">mrp.bom.form.inherit.flexible.bom</field>
+            <field name="model">mrp.bom</field>
+            <field name="inherit_id" ref="mrp.mrp_bom_form_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='code']" position="after">
+                    <field name="is_flexible_bom" readonly="1" invisible="not is_flexible_bom"/>
+                    <field name="is_base_bom"/>
+                    <field name="sale_order_line_id" readonly="1" invisible="not is_flexible_bom"/>
+                    <field name="base_bom_id" readonly="1" invisible="not is_flexible_bom"/>
+                    <field name="flexible_bom_count" readonly="1" invisible="not is_base_bom"/>
+                </xpath>
+                
+                <!-- Add buttons for base BOM management in a group -->
+                <xpath expr="//field[@name='code']" position="before">
+                    <div class="oe_button_box" name="button_box">
+                        <button name="mark_as_base_bom" 
+                                string="Mark as Base BOM" 
+                                type="object" 
+                                class="oe_stat_button btn-primary"
+                                invisible="is_flexible_bom or is_base_bom"
+                                confirm="This will mark this BOM as the base BOM for this product. Are you sure?"/>
+                        <button name="replace_as_base_bom" 
+                                string="Replace Base BOM" 
+                                type="object" 
+                                class="oe_stat_button btn-warning"
+                                invisible="is_flexible_bom or is_base_bom"
+                                confirm="This will replace any existing base BOM for this product. Are you sure?"/>
+                        <button name="unmark_as_base_bom" 
+                                string="Unmark as Base BOM" 
+                                type="object" 
+                                class="oe_stat_button btn-secondary"
+                                invisible="not is_base_bom"
+                                confirm="This will unmark this BOM as base BOM. Flexible BOMs derived from it may stop working properly. Are you sure?"/>
+                    </div>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- MRP BOM Tree View -->
+        <record id="mrp_bom_tree_view_inherit" model="ir.ui.view">
+            <field name="name">mrp.bom.tree.inherit.flexible.bom</field>
+            <field name="model">mrp.bom</field>
+            <field name="inherit_id" ref="mrp.mrp_bom_tree_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='code']" position="after">
+                    <field name="is_flexible_bom"/>
+                    <field name="is_base_bom"/>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- MRP BOM Search View -->
+        <record id="mrp_bom_search_view_inherit" model="ir.ui.view">
+            <field name="name">mrp.bom.search.inherit.flexible.bom</field>
+            <field name="model">mrp.bom</field>
+            <field name="inherit_id" ref="mrp.view_mrp_bom_filter"/>
+            <field name="arch" type="xml">
+                <xpath expr="//filter[@name='inactive']" position="after">
+                    <separator/>
+                    <filter name="base_boms" string="Base BOMs" domain="[('is_base_bom', '=', True)]"/>
+                    <filter name="flexible_boms" string="Flexible BOMs" domain="[('is_flexible_bom', '=', True)]"/>
+                    <filter name="standard_boms" string="Standard BOMs" domain="[('is_flexible_bom', '=', False), ('is_base_bom', '=', False)]"/>
+                </xpath>
+                <xpath expr="//group" position="inside">
+                    <filter string="BOM Type" name="group_by_type" context="{'group_by': 'is_flexible_bom'}"/>
+                    <filter string="Base BOM Status" name="group_by_base" context="{'group_by': 'is_base_bom'}"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

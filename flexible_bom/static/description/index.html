@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flexible BOM - Odoo Module</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .header {
+            text-align: center;
+            background: linear-gradient(135deg, #7c3aed, #a855f7);
+            color: white;
+            padding: 40px 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 25px rgba(124, 58, 237, 0.2);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 3em;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            font-size: 1.3em;
+            opacity: 0.95;
+        }
+        .version-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin-top: 15px;
+            font-weight: 600;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .feature-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #7c3aed;
+        }
+        .feature-card h3 {
+            color: #7c3aed;
+            margin-top: 0;
+            font-size: 1.4em;
+        }
+        .feature-card .icon {
+            font-size: 2em;
+            margin-bottom: 15px;
+            display: block;
+        }
+        .workflow {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .workflow h2 {
+            color: #7c3aed;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+        .workflow-steps {
+            counter-reset: step-counter;
+            list-style: none;
+            padding: 0;
+        }
+        .workflow-steps li {
+            counter-increment: step-counter;
+            margin: 20px 0;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            position: relative;
+            padding-left: 60px;
+        }
+        .workflow-steps li::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #7c3aed;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .use-cases {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        .use-cases h2 {
+            margin-top: 0;
+            color: white;
+        }
+        .use-case {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .use-case strong {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        .installation {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 30px 0;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .installation h2 {
+            color: #059669;
+        }
+        .installation ol {
+            font-size: 1.1em;
+        }
+        .installation li {
+            margin: 10px 0;
+            padding: 5px 0;
+        }
+        .tech-details {
+            background: #f3f4f6;
+            padding: 25px;
+            border-radius: 12px;
+            margin: 30px 0;
+        }
+        .tech-details h3 {
+            color: #374151;
+            margin-top: 0;
+        }
+        .tech-list {
+            columns: 2;
+            column-gap: 30px;
+        }
+        .tech-list li {
+            margin: 8px 0;
+            break-inside: avoid;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 30px;
+            background: #374151;
+            color: white;
+            border-radius: 12px;
+        }
+        .cta-button {
+            display: inline-block;
+            background: #7c3aed;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        .cta-button:hover {
+            background: #6d28d9;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(124, 58, 237, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 Flexible BOM</h1>
+        <p>Create Custom Bills of Materials from Sales Orders</p>
+        <span class="version-badge">Odoo 18.0.1.0.0</span>
+    </div>
+
+    <div class="features-grid">
+        <div class="feature-card">
+            <span class="icon">🎯</span>
+            <h3>Interactive Configuration</h3>
+            <p>Intuitive wizard interface allows sales teams to configure custom BOMs directly from sales order lines without technical knowledge.</p>
+        </div>
+        
+        <div class="feature-card">
+            <span class="icon">⚙️</span>
+            <h3>Manufacturing & Kit BOMs</h3>
+            <p>Support for both manufacturing BOMs (with operations) and Kit BOMs (component bundles) to cover all business scenarios.</p>
+        </div>
+        
+        <div class="feature-card">
+            <span class="icon">💰</span>
+            <h3>Real-time Pricing</h3>
+            <p>Automatic price calculation based on selected components with configurable margins for accurate quotations.</p>
+        </div>
+        
+        <div class="feature-card">
+            <span class="icon">🔄</span>
+            <h3>Seamless Integration</h3>
+            <p>Full integration with Odoo's manufacturing, sales, and inventory modules for streamlined business processes.</p>
+        </div>
+    </div>
+
+    <div class="workflow">
+        <h2>📋 How It Works</h2>
+        <ol class="workflow-steps">
+            <li><strong>Mark Product as Flexible:</strong> Enable "Flexible BOM" checkbox on products that need custom configuration.</li>
+            <li><strong>Create Base BOM:</strong> Set up a template BOM with standard components and operations.</li>
+            <li><strong>Configure in Sales Order:</strong> Click "Configure BOM" button when adding flexible products to sales orders.</li>
+            <li><strong>Customize Components:</strong> Use the wizard to add, remove, or modify components and quantities.</li>
+            <li><strong>Choose BOM Type:</strong> Select between Manufacturing BOM or Kit based on customer needs.</li>
+            <li><strong>Generate Custom BOM:</strong> System creates a quote-specific BOM linked to the sales order line.</li>
+            <li><strong>Production Integration:</strong> Manufacturing orders automatically use the custom BOM configuration.</li>
+        </ol>
+    </div>
+
+    <div class="use-cases">
+        <h2>🏭 Perfect for These Industries</h2>
+        
+        <div class="use-case">
+            <strong>🖨️ Printing Companies</strong>
+            Custom posters, business cards, and marketing materials with variable paper types, inks, and finishing options.
+        </div>
+        
+        <div class="use-case">
+            <strong>🪑 Furniture Manufacturers</strong>
+            Tables, chairs, and cabinets with customer-selected materials, colors, and hardware options.
+        </div>
+        
+        <div class="use-case">
+            <strong>💻 Electronics Assembly</strong>
+            Computer builds, control panels, and electronic devices with configurable components and specifications.
+        </div>
+        
+        <div class="use-case">
+            <strong>🎁 Gift & Package Companies</strong>
+            Custom gift boxes, promotional packages, and product bundles with variable contents.
+        </div>
+    </div>
+
+    <div class="installation">
+        <h2>🚀 Quick Installation</h2>
+        <ol>
+            <li>Download the <code>flexible_bom</code> module</li>
+            <li>Copy to your Odoo addons directory</li>
+            <li>Update the apps list in Odoo</li>
+            <li>Install "Flexible BOM" module</li>
+            <li>Configure your first flexible product!</li>
+        </ol>
+    </div>
+
+    <div class="tech-details">
+        <h3>🔧 Technical Information</h3>
+        <div class="tech-list">
+            <ul>
+                <li><strong>Odoo Version:</strong> 18.0+</li>
+                <li><strong>License:</strong> LGPL-3</li>
+                <li><strong>Dependencies:</strong> base, sale, mrp, product, stock</li>
+                <li><strong>Models Extended:</strong> product.template, sale.order.line, mrp.bom</li>
+                <li><strong>New Models:</strong> flexible.bom.wizard, flexible.bom.line.wizard</li>
+                <li><strong>Languages:</strong> Python, XML, JavaScript</li>
+                <li><strong>Database:</strong> PostgreSQL compatible</li>
+                <li><strong>Multi-company:</strong> Supported</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="footer">
+        <h3>Ready to Get Started?</h3>
+        <p>Transform your make-to-order business with flexible BOM configuration!</p>
+        <a href="#" class="cta-button">📦 Install Now</a>
+        <a href="#" class="cta-button">📖 Documentation</a>
+        <a href="#" class="cta-button">💬 Support</a>
+    </div>
+</body>
+</html>
