@@ -113,27 +113,6 @@
             </field>
         </record>
 
-        <!-- Add menu item for approved orders -->
-        <record id="action_orders_approved" model="ir.actions.act_window">
-            <field name="name">Approved Orders</field>
-            <field name="type">ir.actions.act_window</field>
-            <field name="res_model">sale.order</field>
-            <field name="view_mode">tree,kanban,form,calendar,pivot,graph</field>
-            <field name="domain">[('state', '=', 'approved')]</field>
-            <field name="context">{}</field>
-            <field name="help" type="html">
-                <p class="o_view_nocontent_smiling_face">
-                    No approved orders found!
-                </p>
-                <p>
-                    Approved orders are quotations that have been approved
-                    and are ready for BOM customization.
-                </p>
-                <p>
-                    Use this view to track orders that are waiting for BOM customization.
-                </p>
-            </field>
-        </record>
 
         <!-- Add menu item for BOM customization orders -->
         <record id="action_orders_bom_customization" model="ir.actions.act_window">
@@ -157,11 +136,6 @@
             </field>
         </record>
 
-        <menuitem id="menu_sale_order_approved"
-                  name="Approved Orders"
-                  parent="sale.sale_order_menu"
-                  action="action_orders_approved"
-                  sequence="12"/>
 
         <menuitem id="menu_sale_order_bom_customization"
                   name="BOM Customization"
