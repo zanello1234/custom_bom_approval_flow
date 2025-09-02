@@ -247,7 +247,9 @@ class FlexibleBomWizard(models.TransientModel):
             })
         
         # Update sale order line
+        _logger.info(f"🔗 Assigning flexible BOM {new_bom.id} ({new_bom.display_name}) to sale order line {self.sale_order_line_id.id}")
         self.sale_order_line_id.flexible_bom_id = new_bom.id
+        _logger.info(f"✅ Sale order line {self.sale_order_line_id.id} now has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
         
         # Handle delivery cancellation and recreation for confirmed orders
         delivery_message = ""

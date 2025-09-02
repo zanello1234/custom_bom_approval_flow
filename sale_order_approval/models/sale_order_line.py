@@ -57,22 +57,31 @@ class SaleOrderLine(models.Model):
         components = []
         
         if not bom:
+            _logger.info(f"⚠️ No BOM provided for product {product.display_name}, treating as leaf component")
             return [(product, qty)]
         
         # If BOM is not KIT type, return the product itself
         if bom.type != 'phantom':  # phantom = KIT in Odoo
+            _logger.info(f"📋 BOM {bom.display_name} is not KIT type (type: {bom.type}), treating {product.display_name} as leaf")
             return [(product, qty)]
         
-        _logger.info(f"Expanding KIT BOM {bom.display_name} for product {product.display_name}")
+        _logger.info(f"🔧 Expanding KIT BOM {bom.display_name} for product {product.display_name} (qty: {qty})")
         
         for line in bom.bom_line_ids:
             component_product = line.product_id
             component_qty = line.product_qty * qty
             
-            # Check if this component has its own BOM (flexible first, then base)
-            component_bom = self._find_flexible_bom_for_product(component_product)
+            _logger.info(f"  📦 Component: {component_product.display_name} (qty: {component_qty})")
+            
+            # For sub-components, always use base BOM (since they weren't customized)
+            component_bom = self.env['mrp.bom']._bom_find(
+                component_product,
+                company_id=self.company_id.id,
+                bom_type='phantom'  # Only look for KIT BOMs
+            )
             
             if component_bom and component_bom.type == 'phantom':
+                _logger.info(f"    🔧 Component {component_product.display_name} has KIT BOM {component_bom.display_name}, expanding...")
                 # Recursively expand this component's BOM
                 sub_components = self._get_all_kit_components(
                     component_product, 
@@ -82,8 +91,10 @@ class SaleOrderLine(models.Model):
                 components.extend(sub_components)
             else:
                 # This is a leaf component
+                _logger.info(f"    ✅ {component_product.display_name} is leaf component (qty: {component_qty})")
                 components.append((component_product, component_qty))
         
+        _logger.info(f"🎯 Final components for {product.display_name}: {[(c[0].display_name, c[1]) for c in components]}")
         return components
 
     def _action_launch_stock_rule(self):
@@ -95,23 +106,26 @@ class SaleOrderLine(models.Model):
         """
         _logger.info(f"Launching stock rule for sale line {self.id} - Product: {self.product_id.display_name}")
         
-        # Check if this sale line has a flexible BOM assigned
+        # First priority: Check if this sale line has a flexible BOM assigned
         bom = None
         if hasattr(self, 'flexible_bom_id') and self.flexible_bom_id:
             bom = self.flexible_bom_id
-            _logger.info(f"Using assigned flexible BOM: {bom.display_name}")
+            _logger.info(f"✅ Using assigned flexible BOM: {bom.display_name} (ID: {bom.id})")
         else:
-            # Look for any flexible BOM for this product in this sale order
-            bom = self._find_flexible_bom_for_product(self.product_id)
-            if bom and bom.is_flexible_bom:
-                _logger.info(f"Found flexible BOM in sale order: {bom.display_name}")
-            elif bom:
-                _logger.info(f"Using base BOM: {bom.display_name}")
+            # Fallback: Get the base BOM for this product
+            bom = self.env['mrp.bom']._bom_find(
+                self.product_id,
+                company_id=self.company_id.id
+            )
+            if bom:
+                _logger.info(f"⚠️ No flexible BOM found, using base BOM: {bom.display_name}")
+            else:
+                _logger.info(f"❌ No BOM found for product {self.product_id.display_name}")
         
         if bom and bom.type == 'phantom':  # KIT BOM
-            _logger.info(f"Found KIT BOM {bom.display_name} for product {self.product_id.display_name}")
+            _logger.info(f"🔧 Processing KIT BOM {bom.display_name} for product {self.product_id.display_name}")
             
-            # Get all leaf components from the custom BOM
+            # Get all leaf components from the BOM (flexible or base)
             all_components = self._get_all_kit_components(
                 self.product_id, 
                 bom, 
@@ -119,13 +133,18 @@ class SaleOrderLine(models.Model):
             )
             
             if all_components:
-                _logger.info(f"Expanded KIT to {len(all_components)} leaf components")
+                _logger.info(f"📦 Expanded KIT to {len(all_components)} leaf components: {[c[0].display_name for c in all_components]}")
                 
                 # Create stock moves for each leaf component instead of the main product
                 self._create_kit_stock_moves(all_components)
                 return
+            else:
+                _logger.info("⚠️ No components found in KIT BOM")
+        elif bom:
+            _logger.info(f"📋 BOM {bom.display_name} is not a KIT (type: {bom.type}), using standard behavior")
         
         # If not a KIT or no BOM, use standard behavior
+        _logger.info("🔄 Using standard stock rule behavior")
         return super()._action_launch_stock_rule()
 
     def _create_kit_stock_moves(self, components):
