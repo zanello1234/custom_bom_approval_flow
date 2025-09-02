@@ -268,23 +268,19 @@ class FlexibleBomWizard(models.TransientModel):
         
         # Handle price updates differently for confirmed orders
         if self.order_confirmed:
-            # For confirmed orders, ask user if they want to update the price
+            # For confirmed orders, show notification and close window
             full_message = f'BOM Flexible "{new_bom.code}" ha sido creado. Para órdenes confirmadas, los precios no se actualizan automáticamente. Por favor, revise y ajuste manualmente si es necesario.'
             if delivery_message:
                 full_message += f'\n\n{delivery_message}'
                 
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': 'BOM Creado Exitosamente',
-                    'message': full_message,
-                    'type': 'success',
-                    'sticky': True,
-                }
-            }
+            # Show notification and close window
+            self.env.user.notify_success(
+                title='BOM Creado Exitosamente',
+                message=full_message
+            )
+            return {'type': 'ir.actions.act_window_close'}
         else:
-            # For draft orders, update price automatically
+            # For draft orders, update price automatically and close window
             self._update_sale_line_price()
             return {'type': 'ir.actions.act_window_close'}
 
@@ -313,30 +309,29 @@ class FlexibleBomWizard(models.TransientModel):
         cancelled_pickings = []
         
         # Method 1: Find delivery orders directly through Sale Order (most reliable)
-        delivery_orders = self.env['stock.picking'].search([
-            ('origin', '=', sale_order.name),
-            ('state', 'in', ['waiting', 'confirmed', 'assigned']),  # En espera o disponible
-            ('picking_type_code', '=', 'outgoing')  # Solo entregas salientes
-        ])
-        
-        _logger.info(f"Found {len(delivery_orders)} delivery orders by origin: {delivery_orders.mapped('name')}")
-        
-        # Method 2: Also search by move lines related to our sale order line
-        stock_moves = self.env['stock.move'].search([
+        # Method 1: Cancel ALL stock moves related to this sale order line first
+        all_stock_moves = self.env['stock.move'].search([
             ('sale_line_id', '=', self.sale_order_line_id.id),
             ('state', 'not in', ['done', 'cancel'])
         ])
         
-        if stock_moves:
-            pickings_from_moves = stock_moves.mapped('picking_id').filtered(
-                lambda p: p.state in ['waiting', 'confirmed', 'assigned'] and p.picking_type_code == 'outgoing'
-            )
-            # Combine both searches to get all relevant deliveries
-            delivery_orders = (delivery_orders | pickings_from_moves).filtered(
-                lambda p: p.state in ['waiting', 'confirmed', 'assigned']
-            )
+        _logger.info(f"Found {len(all_stock_moves)} stock moves to cancel for sale line {self.sale_order_line_id.id}")
         
-        _logger.info(f"Total delivery orders to cancel: {len(delivery_orders)} - {delivery_orders.mapped('name')}")
+        if all_stock_moves:
+            try:
+                all_stock_moves._action_cancel()
+                _logger.info(f"Successfully cancelled {len(all_stock_moves)} stock moves")
+            except Exception as e:
+                _logger.error(f"Error cancelling stock moves: {str(e)}")
+        
+        # Method 2: Find and cancel ALL delivery orders related to this sale order
+        delivery_orders = self.env['stock.picking'].search([
+            ('origin', '=', sale_order.name),
+            ('state', 'in', ['waiting', 'confirmed', 'assigned', 'draft']),
+            ('picking_type_code', '=', 'outgoing')
+        ])
+        
+        _logger.info(f"Found {len(delivery_orders)} delivery orders to cancel: {delivery_orders.mapped('name')}")
         
         # Cancel delivery orders
         if delivery_orders:
@@ -348,6 +343,11 @@ class FlexibleBomWizard(models.TransientModel):
                     if delivery.state == 'assigned':
                         delivery.do_unreserve()
                         _logger.info(f"Unreserved delivery {delivery.name}")
+                    
+                    # Cancel all moves in this delivery
+                    for move in delivery.move_ids:
+                        if move.state not in ['done', 'cancel']:
+                            move._action_cancel()
                     
                     # Cancel the delivery
                     delivery.action_cancel()
@@ -364,15 +364,15 @@ class FlexibleBomWizard(models.TransientModel):
                 delivery_info.append(success_msg)
                 _logger.info(f"Successfully cancelled deliveries: {cancelled_pickings}")
         else:
-            no_delivery_msg = "ℹ️ No se encontraron entregas en estado 'en espera' o 'disponible' para cancelar"
+            no_delivery_msg = "ℹ️ No se encontraron entregas para cancelar"
             delivery_info.append(no_delivery_msg)
-            _logger.info("No delivery orders found in waiting/assigned state")
+            _logger.info("No delivery orders found to cancel")
         
         # Recreate deliveries by triggering stock rules
         try:
             _logger.info("Attempting to recreate deliveries...")
             
-            # Cancel any remaining stock moves for this sale line
+            # Ensure all old moves are gone before creating new ones
             remaining_moves = self.env['stock.move'].search([
                 ('sale_line_id', '=', self.sale_order_line_id.id),
                 ('state', 'not in', ['done', 'cancel'])
