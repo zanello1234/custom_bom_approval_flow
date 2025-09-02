@@ -87,7 +87,7 @@
                     <field name="state" 
                            decoration-info="state in ('draft', 'sent')" 
                            decoration-success="state == 'approved'"
-                           decoration-warning="state == 'bom_customization'"
+                           decoration-primary="state == 'bom_customization'"
                            decoration-bf="state in ('sale', 'done')"
                            decoration-muted="state == 'cancel'"
                            widget="badge"/>
@@ -105,7 +105,7 @@
                     <field name="state" 
                            decoration-info="state in ('draft', 'sent')" 
                            decoration-success="state == 'approved'"
-                           decoration-warning="state == 'bom_customization'"
+                           decoration-primary="state == 'bom_customization'"
                            decoration-bf="state in ('sale', 'done')"
                            decoration-muted="state == 'cancel'"
                            widget="badge"/>
