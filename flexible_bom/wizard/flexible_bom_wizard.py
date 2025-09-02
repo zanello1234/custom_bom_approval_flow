@@ -273,10 +273,10 @@ class FlexibleBomWizard(models.TransientModel):
             if delivery_message:
                 full_message += f'\n\n{delivery_message}'
                 
-            # Show notification and close window
-            self.env.user.notify_success(
-                title='BOM Creado Exitosamente',
-                message=full_message
+            # Show notification using message_post and close window
+            self.sale_order_line_id.order_id.message_post(
+                body=f"✅ {full_message}",
+                message_type='notification'
             )
             return {'type': 'ir.actions.act_window_close'}
         else:
