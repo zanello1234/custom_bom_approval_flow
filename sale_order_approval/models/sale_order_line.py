@@ -9,6 +9,46 @@ _logger = logging.getLogger(__name__)
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
+    def _find_flexible_bom_for_product(self, product):
+        """
+        Find flexible BOM for a product in the current sale order.
+        If no flexible BOM exists, fallback to base BOM.
+        """
+        # First, check if there's a flexible BOM for this product in the same sale order
+        # Look for flexible BOMs that are linked to sale order lines in this order
+        sale_lines_with_flexible_bom = self.env['sale.order.line'].search([
+            ('order_id', '=', self.order_id.id),
+            ('product_id', '=', product.id),
+            ('flexible_bom_id', '!=', False)
+        ])
+        
+        if sale_lines_with_flexible_bom:
+            flexible_bom = sale_lines_with_flexible_bom[0].flexible_bom_id
+            _logger.info(f"Found flexible BOM {flexible_bom.display_name} for product {product.display_name} in sale order")
+            return flexible_bom
+        
+        # Alternative search: look for flexible BOMs created for this product recently
+        flexible_bom = self.env['mrp.bom'].search([
+            ('product_id', '=', product.id),
+            ('is_flexible_bom', '=', True)
+        ], order='create_date desc', limit=1)
+        
+        if flexible_bom:
+            _logger.info(f"Found recent flexible BOM {flexible_bom.display_name} for product {product.display_name}")
+            return flexible_bom
+        
+        # If no flexible BOM, use base BOM
+        base_bom = self.env['mrp.bom']._bom_find(
+            product,
+            company_id=self.company_id.id,
+            bom_type='phantom'  # Only look for KIT BOMs
+        )
+        
+        if base_bom:
+            _logger.info(f"Using base BOM {base_bom.display_name} for product {product.display_name}")
+        
+        return base_bom
+
     def _get_all_kit_components(self, product, bom, qty=1.0):
         """
         Recursively expand BOM to get all leaf components for KIT type BOMs.
@@ -29,12 +69,8 @@ class SaleOrderLine(models.Model):
             component_product = line.product_id
             component_qty = line.product_qty * qty
             
-            # Check if this component has its own BOM
-            component_bom = self.env['mrp.bom']._bom_find(
-                component_product,
-                company_id=self.company_id.id,
-                bom_type='phantom'  # Only look for KIT BOMs
-            )
+            # Check if this component has its own BOM (flexible first, then base)
+            component_bom = self._find_flexible_bom_for_product(component_product)
             
             if component_bom and component_bom.type == 'phantom':
                 # Recursively expand this component's BOM
@@ -63,14 +99,13 @@ class SaleOrderLine(models.Model):
         bom = None
         if hasattr(self, 'flexible_bom_id') and self.flexible_bom_id:
             bom = self.flexible_bom_id
-            _logger.info(f"Using flexible BOM: {bom.display_name}")
+            _logger.info(f"Using assigned flexible BOM: {bom.display_name}")
         else:
-            # Get the BOM for this product (base BOM)
-            bom = self.env['mrp.bom']._bom_find(
-                self.product_id,
-                company_id=self.company_id.id
-            )
-            if bom:
+            # Look for any flexible BOM for this product in this sale order
+            bom = self._find_flexible_bom_for_product(self.product_id)
+            if bom and bom.is_flexible_bom:
+                _logger.info(f"Found flexible BOM in sale order: {bom.display_name}")
+            elif bom:
                 _logger.info(f"Using base BOM: {bom.display_name}")
         
         if bom and bom.type == 'phantom':  # KIT BOM
