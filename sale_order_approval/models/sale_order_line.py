@@ -55,19 +55,28 @@ class SaleOrderLine(models.Model):
         Override to handle KIT BOM expansion for deliveries.
         When a product has a KIT BOM with sub-KIT components, 
         create delivery for all leaf components instead.
+        Uses flexible BOM if available, otherwise uses base BOM.
         """
         _logger.info(f"Launching stock rule for sale line {self.id} - Product: {self.product_id.display_name}")
         
-        # Get the BOM for this product
-        bom = self.env['mrp.bom']._bom_find(
-            self.product_id,
-            company_id=self.company_id.id
-        )
+        # Check if this sale line has a flexible BOM assigned
+        bom = None
+        if hasattr(self, 'flexible_bom_id') and self.flexible_bom_id:
+            bom = self.flexible_bom_id
+            _logger.info(f"Using flexible BOM: {bom.display_name}")
+        else:
+            # Get the BOM for this product (base BOM)
+            bom = self.env['mrp.bom']._bom_find(
+                self.product_id,
+                company_id=self.company_id.id
+            )
+            if bom:
+                _logger.info(f"Using base BOM: {bom.display_name}")
         
         if bom and bom.type == 'phantom':  # KIT BOM
             _logger.info(f"Found KIT BOM {bom.display_name} for product {self.product_id.display_name}")
             
-            # Get all leaf components
+            # Get all leaf components from the custom BOM
             all_components = self._get_all_kit_components(
                 self.product_id, 
                 bom, 

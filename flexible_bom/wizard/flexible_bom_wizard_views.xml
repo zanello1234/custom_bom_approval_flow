@@ -7,11 +7,6 @@
             <field name="model">flexible.bom.wizard</field>
             <field name="arch" type="xml">
                 <form string="Configurar BOM Flexible">
-                    <header>
-                        <button name="action_create_bom" string="Crear BOM" type="object" class="btn-primary" invisible="order_confirmed"/>
-                        <button name="action_create_bom" string="⚠️ Crear/Modificar BOM (Orden Confirmada)" type="object" class="btn-warning" invisible="not order_confirmed"/>
-                        <button string="Cancelar" class="btn-secondary" special="cancel"/>
-                    </header>
                     <sheet>
                         <!-- Warning for confirmed orders -->
                         <div class="alert alert-warning" role="alert" invisible="not order_confirmed">
@@ -62,6 +57,11 @@
                             </page>
                         </notebook>
                     </sheet>
+                    <footer>
+                        <button name="action_create_bom" string="Create BOM" type="object" class="btn-primary" invisible="order_confirmed"/>
+                        <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" invisible="not order_confirmed"/>
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </footer>
                 </form>
             </field>
         </record>

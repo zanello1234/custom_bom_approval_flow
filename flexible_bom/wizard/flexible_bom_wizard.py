@@ -382,9 +382,13 @@ class FlexibleBomWizard(models.TransientModel):
                 remaining_moves._action_cancel()
                 _logger.info(f"Cancelled {len(remaining_moves)} remaining stock moves")
             
-            # Trigger recreation of stock moves
+            # Update the sale order line to use the new BOM before triggering stock rule
+            if hasattr(self, 'sale_order_line_id') and hasattr(self.sale_order_line_id, 'flexible_bom_id'):
+                _logger.info(f"Sale line has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
+            
+            # Trigger recreation of stock moves with the updated BOM
             self.sale_order_line_id._action_launch_stock_rule()
-            _logger.info("Successfully triggered stock rule recreation")
+            _logger.info("Successfully triggered stock rule recreation with updated BOM")
             
             # Look for newly created deliveries
             new_deliveries = self.env['stock.picking'].search([
