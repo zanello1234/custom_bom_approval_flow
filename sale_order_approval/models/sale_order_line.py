@@ -9,6 +9,19 @@ _logger = logging.getLogger(__name__)
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
+    def _prepare_procurement_values(self, group_id=False):
+        """Override to inject flexible BOM into procurement"""
+        values = super()._prepare_procurement_values(group_id)
+        
+        # If this line has a flexible BOM, inject it into the procurement context
+        if hasattr(self, 'flexible_bom_id') and self.flexible_bom_id:
+            _logger.info(f"🔧 Injecting flexible BOM {self.flexible_bom_id.display_name} into procurement for line {self.id}")
+            values['flexible_bom_id'] = self.flexible_bom_id.id
+            # Override the standard BOM search
+            values['bom_id'] = self.flexible_bom_id.id
+        
+        return values
+
     def _find_flexible_bom_for_product(self, product):
         """
         Find flexible BOM for a product in the current sale order.

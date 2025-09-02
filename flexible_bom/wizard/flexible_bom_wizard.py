@@ -388,9 +388,15 @@ class FlexibleBomWizard(models.TransientModel):
             if hasattr(self, 'sale_order_line_id') and hasattr(self.sale_order_line_id, 'flexible_bom_id'):
                 _logger.info(f"Sale line has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
             
-            # Trigger recreation of stock moves with the updated BOM
-            self.sale_order_line_id._action_launch_stock_rule()
-            _logger.info("Successfully triggered stock rule recreation with updated BOM")
+            # Trigger recreation of stock moves with the updated BOM and proper context
+            context_with_bom = dict(self.env.context)
+            context_with_bom.update({
+                'sale_line_id': self.sale_order_line_id.id,
+                'flexible_bom_id': self.sale_order_line_id.flexible_bom_id.id if self.sale_order_line_id.flexible_bom_id else False
+            })
+            
+            self.sale_order_line_id.with_context(context_with_bom)._action_launch_stock_rule()
+            _logger.info("Successfully triggered stock rule recreation with updated BOM and context")
             
             # Look for newly created deliveries
             new_deliveries = self.env['stock.picking'].search([
