@@ -23,7 +23,23 @@ class ProductTemplate(models.Model):
         ])
         
         if not existing_boms:
-            raise UserError(_("No BOMs found for this product. Please create a BOM first."))
+            # Crear una nueva BOM base vacía para el producto
+            new_bom = self.env['mrp.bom'].create({
+                'product_tmpl_id': self.id,
+                'is_base_bom': True,
+                'type': 'normal',
+                'is_flexible_bom': False,
+                # No agregamos componentes
+            })
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'Base BOM Creada',
+                    'message': f'Se ha creado una BOM base vacía para el producto.',
+                    'type': 'success',
+                }
+            }
         
         # If only one BOM exists, mark it as base automatically
         if len(existing_boms) == 1:
