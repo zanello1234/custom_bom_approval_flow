@@ -39,6 +39,7 @@ Adds an "Approved" state to Sale Orders requiring approval before confirmation.
     'depends': ['sale'],
     'data': [
         'views/sale_order_views.xml',
+        'views/sale_order_bom_customization_menu.xml',
     ],
     'installable': True,
     'auto_install': False,
