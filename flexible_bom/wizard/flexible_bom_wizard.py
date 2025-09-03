@@ -395,15 +395,56 @@ class FlexibleBomWizard(models.TransientModel):
                 'flexible_bom_id': self.sale_order_line_id.flexible_bom_id.id if self.sale_order_line_id.flexible_bom_id else False
             })
             
-            self.sale_order_line_id.with_context(context_with_bom)._action_launch_stock_rule()
+            # Force recreation by calling the procurement method directly
+            _logger.info("🔄 Forcing recreation of stock moves with flexible BOM...")
+            
+            # Get procurement group
+            group_id = self.sale_order_line_id.order_id.procurement_group_id
+            if not group_id:
+                group_vals = self.sale_order_line_id.order_id._prepare_procurement_group()
+                group_id = self.env['procurement.group'].create(group_vals)
+                self.sale_order_line_id.order_id.procurement_group_id = group_id
+            
+            # Prepare procurement values with flexible BOM context
+            procurement_values = self.sale_order_line_id.with_context(context_with_bom)._prepare_procurement_values(group_id)
+            _logger.info(f"🔧 Procurement values: {procurement_values}")
+            
+            # Create procurement for the sale order line
+            procurements = []
+            procurements.append(self.env['procurement.group'].Procurement(
+                self.sale_order_line_id.product_id,
+                self.sale_order_line_id.product_uom_qty,
+                self.sale_order_line_id.product_uom,
+                self.sale_order_line_id.order_partner_shipping_id.property_stock_customer,
+                self.sale_order_line_id.name,
+                self.sale_order_line_id.order_id.name,
+                self.sale_order_line_id.company_id,
+                procurement_values
+            ))
+            
+            # Run the procurement
+            if procurements:
+                self.env['procurement.group'].run(procurements)
+                _logger.info("✅ Procurement run completed with flexible BOM context")
+            
             _logger.info("Successfully triggered stock rule recreation with updated BOM and context")
             
-            # Look for newly created deliveries
+            # Look for newly created deliveries (with small delay for creation)
+            import time
+            time.sleep(1)  # Small delay to allow delivery creation
+            
             new_deliveries = self.env['stock.picking'].search([
                 ('origin', '=', sale_order.name),
                 ('state', 'not in', ['done', 'cancel']),
                 ('picking_type_code', '=', 'outgoing'),
-                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=2))
+                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))  # Extended window
+            ])
+            
+            # Also check for new stock moves
+            new_moves = self.env['stock.move'].search([
+                ('sale_line_id', '=', self.sale_order_line_id.id),
+                ('state', 'not in', ['done', 'cancel']),
+                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))
             ])
             
             if new_deliveries:
@@ -411,6 +452,11 @@ class FlexibleBomWizard(models.TransientModel):
                 success_msg = f"✅ Nuevas entregas creadas: {new_delivery_names}"
                 delivery_info.append(success_msg)
                 _logger.info(f"Created new deliveries: {new_delivery_names}")
+            elif new_moves:
+                move_info = ', '.join([f"{m.product_id.name} (qty: {m.product_uom_qty})" for m in new_moves])
+                success_msg = f"✅ Nuevos movimientos de stock creados: {move_info}"
+                delivery_info.append(success_msg)
+                _logger.info(f"Created new stock moves: {move_info}")
             else:
                 info_msg = "ℹ️ Proceso de recreación iniciado. Las nuevas entregas aparecerán según las reglas de stock configuradas."
                 delivery_info.append(info_msg)
