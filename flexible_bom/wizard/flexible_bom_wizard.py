@@ -392,6 +392,38 @@ class FlexibleBomWizard(models.TransientModel):
                     delivery_name = ', '.join(new_pickings.mapped('name'))
                     delivery_created = True
                     _logger.info(f"✅ Method 1 SUCCESS: Created deliveries: {delivery_name}")
+                    
+                    # Verify linkage for Method 1
+                    for picking in new_pickings:
+                        _logger.info(f"🔗 Method 1 Picking verification for {picking.name}:")
+                        _logger.info(f"   - Origin: {picking.origin}")
+                        
+                        # Check sale_id if field exists
+                        try:
+                            if hasattr(picking, 'sale_id'):
+                                _logger.info(f"   - Sale ID: {picking.sale_id.name if picking.sale_id else 'Not set'}")
+                            else:
+                                _logger.info(f"   - Sale ID: Field not available")
+                        except Exception as e:
+                            _logger.info(f"   - Sale ID: Error checking field - {str(e)}")
+                        
+                        _logger.info(f"   - Group ID: {picking.group_id.name if picking.group_id else 'Not set'}")
+                        _logger.info(f"   - Move sale line IDs: {picking.move_ids.mapped('sale_line_id.id')}")
+                        
+                        # If not properly linked, try to fix it
+                        if picking.origin == order.name:
+                            try:
+                                # Try to link sale_id if field exists
+                                if hasattr(picking, 'sale_id') and not picking.sale_id:
+                                    picking.sale_id = order.id
+                                    
+                                # Ensure procurement group linkage
+                                if order.procurement_group_id and not picking.group_id:
+                                    picking.group_id = order.procurement_group_id.id
+                                    
+                                _logger.info(f"🔧 Fixed linkage for picking {picking.name}")
+                            except Exception as link_error:
+                                _logger.error(f"❌ Could not fix linkage: {str(link_error)}")
                 
             except Exception as e1:
                 _logger.error(f"❌ Method 1 failed: {str(e1)}")
@@ -404,10 +436,15 @@ class FlexibleBomWizard(models.TransientModel):
                 bom_lines = flexible_bom.bom_line_ids
                 
                 if bom_lines:
-                    # Create picking
+                    # Create picking with proper sale order linkage
                     picking_type = order.warehouse_id.out_type_id
                     
-                    new_picking = self.env['stock.picking'].create({
+                    # Ensure procurement group exists and is linked
+                    if not order.procurement_group_id:
+                        group_vals = order._prepare_procurement_group()
+                        order.procurement_group_id = self.env['procurement.group'].create(group_vals)
+                    
+                    picking_vals = {
                         'picking_type_id': picking_type.id,
                         'partner_id': order.partner_shipping_id.id,
                         'origin': order.name,
@@ -415,7 +452,22 @@ class FlexibleBomWizard(models.TransientModel):
                         'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
                         'company_id': order.company_id.id,
                         'state': 'draft',
-                    })
+                        'group_id': order.procurement_group_id.id,  # Link to procurement group
+                    }
+                    
+                    # Try to add sale_id if the field exists (depends on Odoo version/modules)
+                    try:
+                        if 'sale_id' in self.env['stock.picking']._fields:
+                            picking_vals['sale_id'] = order.id
+                            _logger.info("🔗 Added sale_id to picking")
+                        else:
+                            _logger.info("ℹ️ sale_id field not available in stock.picking")
+                    except Exception as field_error:
+                        _logger.warning(f"⚠️ Could not check sale_id field: {str(field_error)}")
+                    
+                    new_picking = self.env['stock.picking'].create(picking_vals)
+                    
+                    _logger.info(f"📦 Created picking {new_picking.name} linked to sale order {order.name}")
                     
                     # Create moves for each component
                     moves_created = 0
@@ -430,20 +482,40 @@ class FlexibleBomWizard(models.TransientModel):
                             'picking_id': new_picking.id,
                             'location_id': picking_type.default_location_src_id.id,
                             'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
-                            'sale_line_id': line.id,
+                            'sale_line_id': line.id,  # Link to specific sale order line
                             'company_id': order.company_id.id,
                             'state': 'draft',
                             'procure_method': 'make_to_stock',
+                            'group_id': order.procurement_group_id.id,  # Link to procurement group
+                            'origin': order.name,  # Reference to sale order
                         }
                         
-                        self.env['stock.move'].create(move_vals)
+                        move = self.env['stock.move'].create(move_vals)
                         moves_created += 1
+                        _logger.info(f"📦 Created move for {bom_line.product_id.name} qty: {component_qty} linked to sale line {line.id}")
                     
                     if moves_created > 0:
                         new_picking.action_confirm()
                         delivery_name = new_picking.name
                         delivery_created = True
-                        _logger.info(f"✅ Method 2 SUCCESS: Created picking {delivery_name} with {moves_created} moves")
+                        _logger.info(f"✅ Method 2 SUCCESS: Created picking {delivery_name} with {moves_created} moves linked to SO {order.name}")
+                        
+                        # Verify the linkage
+                        _logger.info(f"🔗 Picking verification:")
+                        _logger.info(f"   - Origin: {new_picking.origin}")
+                        
+                        # Check sale_id if field exists
+                        try:
+                            if hasattr(new_picking, 'sale_id'):
+                                _logger.info(f"   - Sale ID: {new_picking.sale_id.name if new_picking.sale_id else 'Not set'}")
+                            else:
+                                _logger.info(f"   - Sale ID: Field not available")
+                        except Exception as e:
+                            _logger.info(f"   - Sale ID: Error checking field - {str(e)}")
+                            
+                        _logger.info(f"   - Group ID: {new_picking.group_id.name if new_picking.group_id else 'Not set'}")
+                        _logger.info(f"   - Move origins: {new_picking.move_ids.mapped('origin')}")
+                        _logger.info(f"   - Move sale line IDs: {new_picking.move_ids.mapped('sale_line_id.id')}")
             
             # Return success notification
             if delivery_created:
