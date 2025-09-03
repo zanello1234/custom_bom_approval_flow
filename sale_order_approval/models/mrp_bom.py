@@ -46,9 +46,24 @@ class MrpBom(models.Model):
                     return flexible_bom
         
         # If no flexible BOM context, use standard logic
-        if products:
-            # New signature with products parameter
-            return super()._bom_find(products, **{k: v for k, v in kwargs.items() if k not in ['product_tmpl', 'product']})
-        else:
-            # Old signature with individual parameters
+        try:
+            if products is not None:
+                # New signature with products parameter
+                return super()._bom_find(products, **{k: v for k, v in kwargs.items() if k not in ['product_tmpl', 'product']})
+            else:
+                # Old signature - reconstruct products from individual parameters
+                if product:
+                    return super()._bom_find([product], **{k: v for k, v in kwargs.items() if k not in ['product_tmpl', 'product']})
+                elif product_tmpl:
+                    # For product template, we need to find products
+                    products_for_tmpl = self.env['product.product'].search([('product_tmpl_id', '=', product_tmpl.id)])
+                    if products_for_tmpl:
+                        return super()._bom_find(products_for_tmpl, **{k: v for k, v in kwargs.items() if k not in ['product_tmpl', 'product']})
+                    else:
+                        return super()._bom_find([product_tmpl], **{k: v for k, v in kwargs.items() if k not in ['product_tmpl', 'product']})
+                else:
+                    # No products specified, return False
+                    return self.browse()
+        except TypeError:
+            # Fallback: try old method signature
             return super()._bom_find(**kwargs)
