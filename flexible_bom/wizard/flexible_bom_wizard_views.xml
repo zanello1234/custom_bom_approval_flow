@@ -13,13 +13,12 @@
                             <strong>⚠️ Advertencia de Orden Confirmada:</strong>
                             <field name="warning_message" readonly="1" nolabel="1"/>
                             <br/><br/>
-                            <!-- Delivery cancellation section hidden as it's not working properly -->
-                            <div class="row" invisible="1">
+                            <!-- Delivery cancellation section for confirmed orders -->
+                            <div class="row" invisible="not order_confirmed">
                                 <div class="col-12">
-                                    <label for="cancel_existing_deliveries" class="o_form_label">Cancelar y Recrear Entregas Existentes</label>
+                                    <label for="cancel_existing_deliveries" class="o_form_label">Cancelar Entregas Existentes</label>
                                     <field name="cancel_existing_deliveries" widget="boolean_toggle"/>
-                                    <field name="cancel_existing_deliveries" widget="boolean_button" style="margin-left: 10px;" string="Backup Toggle"/>
-                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán automáticamente y se crearán nuevas basadas en el BOM modificado.</small>
+                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán al crear la BOM. Use el botón "Crear Nuevo Delivery" para generar la entrega con la BOM personalizada.</small>
                                 </div>
                             </div>
                         </div>
@@ -60,6 +59,12 @@
                     <footer>
                         <button name="action_create_bom" string="Create BOM" type="object" class="btn-primary" invisible="order_confirmed"/>
                         <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" invisible="not order_confirmed"/>
+                        
+                        <!-- New button for creating delivery with flexible BOM -->
+                        <button name="action_create_delivery" string="🚚 Crear Nuevo Delivery" type="object" class="btn-success" 
+                                invisible="not order_confirmed" 
+                                help="Crea una nueva entrega usando los componentes de la BOM flexible"/>
+                        
                         <button string="Cancel" class="btn-secondary" special="cancel"/>
                     </footer>
                 </form>

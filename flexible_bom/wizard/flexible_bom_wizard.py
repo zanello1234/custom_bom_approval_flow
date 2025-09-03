@@ -251,22 +251,22 @@ class FlexibleBomWizard(models.TransientModel):
         self.sale_order_line_id.flexible_bom_id = new_bom.id
         _logger.info(f"✅ Sale order line {self.sale_order_line_id.id} now has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
         
-        # Handle delivery cancellation and recreation for confirmed orders
+        # Handle delivery cancellation for confirmed orders (only cancel, don't recreate yet)
         delivery_message = ""
         _logger.info(f"=== DELIVERY HANDLING ===")
         _logger.info(f"self.order_confirmed = {self.order_confirmed}")
         
-        if self.order_confirmed:
-            _logger.info("Order confirmed, automatically updating deliveries...")
+        if self.order_confirmed and self.cancel_existing_deliveries:
+            _logger.info("Order confirmed and cancellation enabled, cancelling existing deliveries...")
             try:
-                delivery_message = self._handle_delivery_update()
-                _logger.info(f"Delivery update completed with message: {delivery_message}")
+                delivery_message = self._cancel_existing_deliveries()
+                _logger.info(f"Delivery cancellation completed with message: {delivery_message}")
             except Exception as e:
-                error_msg = f"Error durante actualización de entregas: {str(e)}"
+                error_msg = f"Error durante cancelación de entregas: {str(e)}"
                 _logger.error(error_msg)
                 delivery_message = error_msg
         else:
-            _logger.info("Order not confirmed, skipping delivery handling")
+            _logger.info("Order not confirmed or cancellation disabled, skipping delivery cancellation")
         
         # Handle price updates differently for confirmed orders
         if self.order_confirmed:
@@ -299,6 +299,191 @@ class FlexibleBomWizard(models.TransientModel):
         new_price = total_cost * margin
         
         self.sale_order_line_id.price_unit = new_price
+
+    def _cancel_existing_deliveries(self):
+        """Cancel existing deliveries for the sale order (separated from recreation)"""
+        _logger.info(f"=== CANCELLING EXISTING DELIVERIES ===")
+        _logger.info(f"Sale order line: {self.sale_order_line_id.id}")
+        
+        order = self.sale_order_line_id.order_id
+        _logger.info(f"Processing sale order: {order.name}")
+        
+        delivery_info = []
+        
+        try:
+            # Find all existing deliveries for this order
+            existing_pickings = self.env['stock.picking'].search([
+                ('origin', '=', order.name),
+                ('state', 'not in', ['done', 'cancel'])
+            ])
+            
+            _logger.info(f"Found {len(existing_pickings)} existing deliveries: {existing_pickings.mapped('name')}")
+            
+            if existing_pickings:
+                cancelled_names = []
+                for picking in existing_pickings:
+                    if picking.state == 'assigned':
+                        picking.do_unreserve()
+                    picking.action_cancel()
+                    cancelled_names.append(picking.name)
+                    _logger.info(f"Cancelled delivery: {picking.name}")
+                
+                delivery_info.append(f"✅ Entregas canceladas: {', '.join(cancelled_names)}")
+                delivery_info.append("ℹ️ Use el botón 'Crear Nuevo Delivery' para generar la entrega con la BOM personalizada")
+            else:
+                delivery_info.append("ℹ️ No se encontraron entregas para cancelar")
+            
+        except Exception as e:
+            error_msg = f"⚠️ Error en cancelación de entregas: {str(e)}"
+            delivery_info.append(error_msg)
+            _logger.error(f"Error in delivery cancellation: {str(e)}")
+            import traceback
+            _logger.error(traceback.format_exc())
+        
+        result = '\n'.join(delivery_info)
+        _logger.info(f"Delivery cancellation completed. Result: {result}")
+        return result
+
+    def action_create_delivery(self):
+        """Create new delivery with the flexible BOM components (new separate action)"""
+        _logger.info(f"=== CREATING NEW DELIVERY WITH FLEXIBLE BOM ===")
+        _logger.info(f"Sale order line: {self.sale_order_line_id.id}")
+        
+        order = self.sale_order_line_id.order_id
+        line = self.sale_order_line_id
+        
+        # Verify we have a flexible BOM
+        if not line.flexible_bom_id:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'type': 'danger',
+                    'title': 'Error',
+                    'message': 'No hay BOM flexible asignada a esta línea de venta',
+                    'sticky': False,
+                }
+            }
+        
+        try:
+            delivery_created = False
+            delivery_name = ""
+            
+            # Method 1: Try using stock rule with flexible BOM context
+            _logger.info("🔄 Method 1: Using _action_launch_stock_rule() with flexible BOM context")
+            
+            try:
+                line_with_context = line.with_context(
+                    force_flexible_bom=True,
+                    flexible_bom_id=line.flexible_bom_id.id,
+                    use_flexible_bom=True
+                )
+                
+                line_with_context._action_launch_stock_rule()
+                self.env.cr.commit()
+                
+                # Check if delivery was created
+                new_pickings = self.env['stock.picking'].search([
+                    ('origin', '=', order.name),
+                    ('state', 'not in', ['done', 'cancel'])
+                ])
+                
+                if new_pickings:
+                    delivery_name = ', '.join(new_pickings.mapped('name'))
+                    delivery_created = True
+                    _logger.info(f"✅ Method 1 SUCCESS: Created deliveries: {delivery_name}")
+                
+            except Exception as e1:
+                _logger.error(f"❌ Method 1 failed: {str(e1)}")
+            
+            # Method 2: Manual creation if Method 1 failed
+            if not delivery_created:
+                _logger.info("🔄 Method 2: Manual delivery creation")
+                
+                flexible_bom = line.flexible_bom_id
+                bom_lines = flexible_bom.bom_line_ids
+                
+                if bom_lines:
+                    # Create picking
+                    picking_type = order.warehouse_id.out_type_id
+                    
+                    new_picking = self.env['stock.picking'].create({
+                        'picking_type_id': picking_type.id,
+                        'partner_id': order.partner_shipping_id.id,
+                        'origin': order.name,
+                        'location_id': picking_type.default_location_src_id.id,
+                        'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                        'company_id': order.company_id.id,
+                        'state': 'draft',
+                    })
+                    
+                    # Create moves for each component
+                    moves_created = 0
+                    for bom_line in bom_lines:
+                        component_qty = bom_line.product_qty * line.product_uom_qty
+                        
+                        move_vals = {
+                            'name': f"{line.name} - {bom_line.product_id.name}",
+                            'product_id': bom_line.product_id.id,
+                            'product_uom_qty': component_qty,
+                            'product_uom': bom_line.product_uom_id.id,
+                            'picking_id': new_picking.id,
+                            'location_id': picking_type.default_location_src_id.id,
+                            'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                            'sale_line_id': line.id,
+                            'company_id': order.company_id.id,
+                            'state': 'draft',
+                            'procure_method': 'make_to_stock',
+                        }
+                        
+                        self.env['stock.move'].create(move_vals)
+                        moves_created += 1
+                    
+                    if moves_created > 0:
+                        new_picking.action_confirm()
+                        delivery_name = new_picking.name
+                        delivery_created = True
+                        _logger.info(f"✅ Method 2 SUCCESS: Created picking {delivery_name} with {moves_created} moves")
+            
+            # Return success notification
+            if delivery_created:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'type': 'success',
+                        'title': 'Delivery Creado',
+                        'message': f'Nueva entrega creada exitosamente: {delivery_name}',
+                        'sticky': False,
+                    }
+                }
+            else:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'type': 'warning',
+                        'title': 'Advertencia',
+                        'message': 'No se pudo crear la nueva entrega. Verifique los logs para más detalles.',
+                        'sticky': False,
+                    }
+                }
+                
+        except Exception as e:
+            _logger.error(f"Error creating delivery: {str(e)}")
+            import traceback
+            _logger.error(traceback.format_exc())
+            
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'type': 'danger',
+                    'title': 'Error',
+                    'message': f'Error al crear delivery: {str(e)}',
+                    'sticky': False,
+                }
+            }
 
     def _handle_delivery_update(self):
         """Handle delivery cancellation and recreation when BOM is updated"""
