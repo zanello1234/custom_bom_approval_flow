@@ -330,7 +330,7 @@ class FlexibleBomWizard(models.TransientModel):
                 
                 delivery_info.append(f"✅ Entregas canceladas: {', '.join(cancelled_names)}")
             
-            # Step 2: Force new delivery creation using procurement
+            # Step 2: Force new delivery creation using multiple methods
             _logger.info("=== RECREATING DELIVERIES ===")
             
             # Ensure procurement group exists
@@ -341,62 +341,121 @@ class FlexibleBomWizard(models.TransientModel):
             # Get the sale order line
             line = self.sale_order_line_id
             
-            # Prepare procurement values with flexible BOM context
-            procurement_values = line._prepare_procurement_values(order.procurement_group_id)
-            procurement_values.update({
-                'force_flexible_bom': True,
-                'flexible_bom_id': line.flexible_bom_id.id if line.flexible_bom_id else False
-            })
-            
-            # Create procurement with flexible BOM context
-            procurement = self.env['procurement.group'].Procurement(
-                line.product_id,
-                line.product_uom_qty,
-                line.product_uom,
-                line.order_partner_shipping_id.property_stock_customer,
-                line.name,
-                order.name,
-                line.company_id,
-                procurement_values
-            )
-            
-            # Run procurement with context
-            self.env['procurement.group'].with_context(
-                force_flexible_bom=True,
-                flexible_bom_id=line.flexible_bom_id.id if line.flexible_bom_id else False
-            ).run([procurement])
-            
-            _logger.info("Procurement run completed")
-            
-            # Step 3: Verify new deliveries were created
-            self.env.cr.commit()  # Ensure changes are saved
-            
-            new_pickings = self.env['stock.picking'].search([
-                ('origin', '=', order.name),
-                ('state', 'not in', ['done', 'cancel'])
-            ])
-            
-            if new_pickings:
-                new_names = ', '.join(new_pickings.mapped('name'))
-                delivery_info.append(f"✅ Nuevas entregas creadas: {new_names}")
-                _logger.info(f"Successfully created new deliveries: {new_names}")
+            # CRITICAL: Verify the flexible BOM is properly linked
+            if not line.flexible_bom_id:
+                _logger.error("❌ CRITICAL: Sale order line does not have flexible_bom_id set!")
+                delivery_info.append("⚠️ Error: La línea de venta no tiene BOM flexible asignada")
+                return '\n'.join(delivery_info)
             else:
-                # Try alternative method
-                _logger.warning("No new deliveries found, trying alternative method")
-                line._action_launch_stock_rule()
+                _logger.info(f"✅ Sale line linked to flexible BOM: {line.flexible_bom_id.id}")
+            
+            # Method 1: Try using direct stock rule action with flexible BOM context
+            _logger.info("🔄 Method 1: Using _action_launch_stock_rule() with flexible BOM context")
+            
+            try:
+                # Set context to force flexible BOM usage
+                line_with_context = line.with_context(
+                    force_flexible_bom=True,
+                    flexible_bom_id=line.flexible_bom_id.id,
+                    use_flexible_bom=True
+                )
                 
-                # Check again
-                final_pickings = self.env['stock.picking'].search([
+                # Call the stock rule directly
+                line_with_context._action_launch_stock_rule()
+                _logger.info("Stock rule launched with flexible BOM context")
+                
+                # Check if deliveries were created
+                self.env.cr.commit()  # Ensure changes are committed
+                
+                new_pickings_method1 = self.env['stock.picking'].search([
                     ('origin', '=', order.name),
                     ('state', 'not in', ['done', 'cancel'])
                 ])
                 
-                if final_pickings:
-                    final_names = ', '.join(final_pickings.mapped('name'))
-                    delivery_info.append(f"✅ Entregas creadas (método alternativo): {final_names}")
-                    _logger.info(f"Created deliveries with alternative method: {final_names}")
+                if new_pickings_method1:
+                    names = ', '.join(new_pickings_method1.mapped('name'))
+                    delivery_info.append(f"✅ Entregas creadas: {names}")
+                    _logger.info(f"✅ Method 1 SUCCESS: Created deliveries: {names}")
+                    
+                    # Log the components to verify flexible BOM usage
+                    for picking in new_pickings_method1:
+                        move_products = picking.move_ids.mapped('product_id.name')
+                        _logger.info(f"📦 Delivery {picking.name} components: {move_products}")
+                    
+                    return '\n'.join(delivery_info)  # Success, exit early
                 else:
-                    delivery_info.append("ℹ️ Las entregas se crearán automáticamente según las reglas de stock")
+                    _logger.warning("⚠️ Method 1 failed - no deliveries created")
+                    
+            except Exception as e1:
+                _logger.error(f"❌ Method 1 error: {str(e1)}")
+            
+            # Method 2: Create delivery manually based on flexible BOM components
+            _logger.info("🔄 Method 2: Manual delivery creation from flexible BOM")
+            
+            try:
+                # Get BOM components directly from flexible BOM
+                flexible_bom = line.flexible_bom_id
+                bom_lines = flexible_bom.bom_line_ids
+                _logger.info(f"📋 Flexible BOM has {len(bom_lines)} components: {[bl.product_id.name for bl in bom_lines]}")
+                
+                if bom_lines:
+                    # Create a new picking manually
+                    picking_type = order.warehouse_id.out_type_id
+                    
+                    new_picking = self.env['stock.picking'].create({
+                        'picking_type_id': picking_type.id,
+                        'partner_id': order.partner_shipping_id.id,
+                        'origin': order.name,
+                        'location_id': picking_type.default_location_src_id.id,
+                        'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                        'company_id': order.company_id.id,
+                        'state': 'draft',
+                    })
+                    _logger.info(f"📦 Created new picking: {new_picking.name}")
+                    
+                    # Create moves for each flexible BOM component
+                    moves_created = 0
+                    for bom_line in bom_lines:
+                        component_qty = bom_line.product_qty * line.product_uom_qty
+                        
+                        move_vals = {
+                            'name': f"{line.name} - {bom_line.product_id.name}",
+                            'product_id': bom_line.product_id.id,
+                            'product_uom_qty': component_qty,
+                            'product_uom': bom_line.product_uom_id.id,
+                            'picking_id': new_picking.id,
+                            'location_id': picking_type.default_location_src_id.id,
+                            'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                            'sale_line_id': line.id,
+                            'company_id': order.company_id.id,
+                            'state': 'draft',
+                            'procure_method': 'make_to_stock',
+                        }
+                        
+                        move = self.env['stock.move'].create(move_vals)
+                        moves_created += 1
+                        _logger.info(f"✅ Created move for {bom_line.product_id.name} qty: {component_qty}")
+                    
+                    # Confirm the picking to make it ready
+                    if moves_created > 0:
+                        new_picking.action_confirm()
+                        delivery_info.append(f"✅ Entrega creada manualmente: {new_picking.name} ({moves_created} componentes)")
+                        _logger.info(f"✅ Method 2 SUCCESS: Created picking {new_picking.name} with {moves_created} moves")
+                        return '\n'.join(delivery_info)  # Success
+                    else:
+                        _logger.error("❌ No moves created for the picking")
+                        new_picking.unlink()  # Remove empty picking
+                else:
+                    _logger.error("❌ No components found in flexible BOM")
+                    
+            except Exception as e2:
+                _logger.error(f"❌ Method 2 error: {str(e2)}")
+                import traceback
+                _logger.error(traceback.format_exc())
+            
+            # If all methods failed
+            delivery_info.append("⚠️ No se pudo recrear la entrega automáticamente")
+            _logger.error("❌ All delivery recreation methods failed")
             
         except Exception as e:
             error_msg = f"⚠️ Error en actualización de entregas: {str(e)}"
@@ -406,6 +465,8 @@ class FlexibleBomWizard(models.TransientModel):
             _logger.error(traceback.format_exc())
         
         result = '\n'.join(delivery_info)
+        _logger.info(f"Delivery update completed. Result: {result}")
+        return result
         _logger.info(f"Delivery update completed. Result: {result}")
         return result
 
