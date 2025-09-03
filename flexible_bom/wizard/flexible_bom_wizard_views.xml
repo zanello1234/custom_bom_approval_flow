@@ -8,8 +8,16 @@
             <field name="arch" type="xml">
                 <form string="Configurar BOM Flexible">
                     <sheet>
+                        <!-- Success message for created BOM -->
+                        <div class="alert alert-success" role="alert" invisible="not bom_created">
+                            <strong>✅ BOM Flexible Creada Exitosamente</strong>
+                            <field name="creation_message" readonly="1" nolabel="1"/>
+                            <br/>
+                            <strong>BOM Creada:</strong> <field name="created_bom_id" readonly="1" nolabel="1"/>
+                        </div>
+                        
                         <!-- Warning for confirmed orders -->
-                        <div class="alert alert-warning" role="alert" invisible="not order_confirmed">
+                        <div class="alert alert-warning" role="alert" invisible="not order_confirmed or bom_created">
                             <strong>⚠️ Advertencia de Orden Confirmada:</strong>
                             <field name="warning_message" readonly="1" nolabel="1"/>
                             <br/><br/>
@@ -25,6 +33,7 @@
                         
                         <!-- Hidden fields -->
                         <field name="order_confirmed" invisible="1"/>
+                        <field name="bom_created" invisible="1"/>
                         
                         <group>
                             <group>
@@ -57,15 +66,20 @@
                         </notebook>
                     </sheet>
                     <footer>
-                        <button name="action_create_bom" string="Create BOM" type="object" class="btn-primary" invisible="order_confirmed"/>
-                        <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" invisible="not order_confirmed"/>
+                        <!-- Create BOM buttons (hidden after BOM is created) -->
+                        <button name="action_create_bom" string="Create BOM" type="object" class="btn-primary" 
+                                invisible="order_confirmed or bom_created"/>
+                        <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" 
+                                invisible="not order_confirmed or bom_created"/>
                         
-                        <!-- New button for creating delivery with flexible BOM -->
+                        <!-- Create delivery button (visible after BOM is created for confirmed orders) -->
                         <button name="action_create_delivery" string="🚚 Crear Nuevo Delivery" type="object" class="btn-success" 
-                                invisible="not order_confirmed" 
+                                invisible="not order_confirmed or not bom_created" 
                                 help="Crea una nueva entrega usando los componentes de la BOM flexible"/>
                         
-                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                        <!-- Close button (changes text after BOM creation) -->
+                        <button string="Cancel" class="btn-secondary" special="cancel" invisible="bom_created"/>
+                        <button string="Close" class="btn-secondary" special="cancel" invisible="not bom_created"/>
                     </footer>
                 </form>
             </field>

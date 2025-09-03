@@ -49,6 +49,24 @@ class FlexibleBomWizard(models.TransientModel):
         string='Routing Lines'
     )
     
+    # Fields to track BOM creation status
+    bom_created = fields.Boolean(
+        string='BOM Created',
+        default=False,
+        help='Indicates if the flexible BOM has been created'
+    )
+    
+    created_bom_id = fields.Many2one(
+        'mrp.bom',
+        string='Created BOM',
+        help='The flexible BOM that was created'
+    )
+    
+    creation_message = fields.Text(
+        string='Creation Message',
+        help='Message about the BOM creation process'
+    )
+    
     order_confirmed = fields.Boolean(
         string='Order Confirmed',
         default=False,
@@ -270,17 +288,37 @@ class FlexibleBomWizard(models.TransientModel):
         
         # Handle price updates differently for confirmed orders
         if self.order_confirmed:
-            # For confirmed orders, show notification and close window
-            full_message = f'BOM Flexible "{new_bom.code}" ha sido creado. Para órdenes confirmadas, los precios no se actualizan automáticamente. Por favor, revise y ajuste manualmente si es necesario.'
+            # For confirmed orders, update wizard state and keep open
+            full_message = f'BOM Flexible "{new_bom.code}" ha sido creada exitosamente.'
             if delivery_message:
                 full_message += f'\n\n{delivery_message}'
+            
+            full_message += '\n\n💡 Use el botón "Crear Nuevo Delivery" para generar la entrega con la BOM personalizada.'
+            
+            # Update wizard fields to show BOM creation status
+            self.write({
+                'bom_created': True,
+                'created_bom_id': new_bom.id,
+                'creation_message': full_message
+            })
                 
-            # Show notification using message_post and close window
+            # Show notification using message_post
             self.sale_order_line_id.order_id.message_post(
                 body=f"✅ {full_message}",
                 message_type='notification'
             )
-            return {'type': 'ir.actions.act_window_close'}
+            
+            # Return success notification and reload form
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'type': 'success',
+                    'title': 'BOM Flexible Creada',
+                    'message': f'BOM "{new_bom.code}" creada exitosamente. Puede usar el botón "Crear Nuevo Delivery" ahora.',
+                    'sticky': False,
+                }
+            }
         else:
             # For draft orders, update price automatically and close window
             self._update_sale_line_price()
