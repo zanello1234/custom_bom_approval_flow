@@ -302,220 +302,110 @@ class FlexibleBomWizard(models.TransientModel):
 
     def _handle_delivery_update(self):
         """Handle delivery cancellation and recreation when BOM is updated"""
-        _logger.info(f"Starting delivery update for sale order line {self.sale_order_line_id.id}")
+        _logger.info(f"=== DELIVERY UPDATE HANDLER ===")
+        _logger.info(f"Sale order line: {self.sale_order_line_id.id}")
         
-        sale_order = self.sale_order_line_id.order_id
-        _logger.info(f"Processing sale order: {sale_order.name}")
+        order = self.sale_order_line_id.order_id
+        _logger.info(f"Processing sale order: {order.name}")
         
         delivery_info = []
-        cancelled_pickings = []
         
-        # Method 1: Find delivery orders directly through Sale Order (most reliable)
-        # Method 1: Cancel ALL stock moves related to this sale order line first
-        all_stock_moves = self.env['stock.move'].search([
-            ('sale_line_id', '=', self.sale_order_line_id.id),
-            ('state', 'not in', ['done', 'cancel'])
-        ])
-        
-        _logger.info(f"Found {len(all_stock_moves)} stock moves to cancel for sale line {self.sale_order_line_id.id}")
-        
-        if all_stock_moves:
-            try:
-                all_stock_moves._action_cancel()
-                _logger.info(f"Successfully cancelled {len(all_stock_moves)} stock moves")
-            except Exception as e:
-                _logger.error(f"Error cancelling stock moves: {str(e)}")
-        
-        # Method 2: Find and cancel ALL delivery orders related to this sale order
-        delivery_orders = self.env['stock.picking'].search([
-            ('origin', '=', sale_order.name),
-            ('state', 'in', ['waiting', 'confirmed', 'assigned', 'draft']),
-            ('picking_type_code', '=', 'outgoing')
-        ])
-        
-        _logger.info(f"Found {len(delivery_orders)} delivery orders to cancel: {delivery_orders.mapped('name')}")
-        
-        # Cancel delivery orders
-        if delivery_orders:
-            for delivery in delivery_orders:
-                try:
-                    _logger.info(f"Attempting to cancel delivery {delivery.name} (state: {delivery.state})")
-                    
-                    # Unreserve if needed
-                    if delivery.state == 'assigned':
-                        delivery.do_unreserve()
-                        _logger.info(f"Unreserved delivery {delivery.name}")
-                    
-                    # Cancel all moves in this delivery
-                    for move in delivery.move_ids:
-                        if move.state not in ['done', 'cancel']:
-                            move._action_cancel()
-                    
-                    # Cancel the delivery
-                    delivery.action_cancel()
-                    cancelled_pickings.append(delivery.name)
-                    _logger.info(f"Successfully cancelled delivery {delivery.name}")
-                    
-                except Exception as e:
-                    error_msg = f"⚠️ Error al cancelar delivery {delivery.name}: {str(e)}"
-                    delivery_info.append(error_msg)
-                    _logger.error(f"Error cancelling delivery {delivery.name}: {str(e)}")
-            
-            if cancelled_pickings:
-                success_msg = f"✅ Entregas canceladas: {', '.join(cancelled_pickings)}"
-                delivery_info.append(success_msg)
-                _logger.info(f"Successfully cancelled deliveries: {cancelled_pickings}")
-        else:
-            no_delivery_msg = "ℹ️ No se encontraron entregas para cancelar"
-            delivery_info.append(no_delivery_msg)
-            _logger.info("No delivery orders found to cancel")
-        
-        # Recreate deliveries by triggering stock rules
         try:
-            _logger.info("Attempting to recreate deliveries...")
-            
-            # Ensure all old moves are gone before creating new ones
-            remaining_moves = self.env['stock.move'].search([
-                ('sale_line_id', '=', self.sale_order_line_id.id),
+            # Step 1: Cancel all existing deliveries for this order
+            existing_pickings = self.env['stock.picking'].search([
+                ('origin', '=', order.name),
                 ('state', 'not in', ['done', 'cancel'])
             ])
             
-            if remaining_moves:
-                remaining_moves._action_cancel()
-                _logger.info(f"Cancelled {len(remaining_moves)} remaining stock moves")
+            _logger.info(f"Found {len(existing_pickings)} existing deliveries: {existing_pickings.mapped('name')}")
             
-            # Update the sale order line to use the new BOM before triggering stock rule
-            if hasattr(self, 'sale_order_line_id') and hasattr(self.sale_order_line_id, 'flexible_bom_id'):
-                _logger.info(f"Sale line has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
+            if existing_pickings:
+                cancelled_names = []
+                for picking in existing_pickings:
+                    if picking.state == 'assigned':
+                        picking.do_unreserve()
+                    picking.action_cancel()
+                    cancelled_names.append(picking.name)
+                    _logger.info(f"Cancelled delivery: {picking.name}")
+                
+                delivery_info.append(f"✅ Entregas canceladas: {', '.join(cancelled_names)}")
             
-            # Trigger recreation of stock moves with the updated BOM and proper context
-            context_with_bom = dict(self.env.context)
-            context_with_bom.update({
-                'sale_line_id': self.sale_order_line_id.id,
-                'flexible_bom_id': self.sale_order_line_id.flexible_bom_id.id if self.sale_order_line_id.flexible_bom_id else False
-            })
+            # Step 2: Force new delivery creation using procurement
+            _logger.info("=== RECREATING DELIVERIES ===")
             
-            # Force recreation by calling the procurement method directly
-            _logger.info("🔄 Forcing recreation of stock moves with flexible BOM...")
+            # Ensure procurement group exists
+            if not order.procurement_group_id:
+                group_vals = order._prepare_procurement_group()
+                order.procurement_group_id = self.env['procurement.group'].create(group_vals)
             
-            # Get procurement group
-            group_id = self.sale_order_line_id.order_id.procurement_group_id
-            if not group_id:
-                group_vals = self.sale_order_line_id.order_id._prepare_procurement_group()
-                group_id = self.env['procurement.group'].create(group_vals)
-                self.sale_order_line_id.order_id.procurement_group_id = group_id
+            # Get the sale order line
+            line = self.sale_order_line_id
             
             # Prepare procurement values with flexible BOM context
-            procurement_values = self.sale_order_line_id.with_context(context_with_bom)._prepare_procurement_values(group_id)
-            _logger.info(f"🔧 Procurement values: {procurement_values}")
+            procurement_values = line._prepare_procurement_values(order.procurement_group_id)
+            procurement_values.update({
+                'force_flexible_bom': True,
+                'flexible_bom_id': line.flexible_bom_id.id if line.flexible_bom_id else False
+            })
             
-            # Create procurement for the sale order line
-            procurements = []
-            procurements.append(self.env['procurement.group'].Procurement(
-                self.sale_order_line_id.product_id,
-                self.sale_order_line_id.product_uom_qty,
-                self.sale_order_line_id.product_uom,
-                self.sale_order_line_id.order_partner_shipping_id.property_stock_customer,
-                self.sale_order_line_id.name,
-                self.sale_order_line_id.order_id.name,
-                self.sale_order_line_id.company_id,
+            # Create procurement with flexible BOM context
+            procurement = self.env['procurement.group'].Procurement(
+                line.product_id,
+                line.product_uom_qty,
+                line.product_uom,
+                line.order_partner_shipping_id.property_stock_customer,
+                line.name,
+                order.name,
+                line.company_id,
                 procurement_values
-            ))
+            )
             
-            # Run the procurement
-            if procurements:
-                self.env['procurement.group'].run(procurements)
-                _logger.info("✅ Procurement run completed with flexible BOM context")
+            # Run procurement with context
+            self.env['procurement.group'].with_context(
+                force_flexible_bom=True,
+                flexible_bom_id=line.flexible_bom_id.id if line.flexible_bom_id else False
+            ).run([procurement])
             
-            _logger.info("Successfully triggered stock rule recreation with updated BOM and context")
+            _logger.info("Procurement run completed")
             
-            # Look for newly created deliveries (with small delay for creation)
-            import time
-            time.sleep(1)  # Small delay to allow delivery creation
+            # Step 3: Verify new deliveries were created
+            self.env.cr.commit()  # Ensure changes are saved
             
-            new_deliveries = self.env['stock.picking'].search([
-                ('origin', '=', sale_order.name),
-                ('state', 'not in', ['done', 'cancel']),
-                ('picking_type_code', '=', 'outgoing'),
-                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))  # Extended window
+            new_pickings = self.env['stock.picking'].search([
+                ('origin', '=', order.name),
+                ('state', 'not in', ['done', 'cancel'])
             ])
             
-            # Also check for new stock moves
-            new_moves = self.env['stock.move'].search([
-                ('sale_line_id', '=', self.sale_order_line_id.id),
-                ('state', 'not in', ['done', 'cancel']),
-                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))
-            ])
-            
-            if new_deliveries:
-                new_delivery_names = ', '.join(new_deliveries.mapped('name'))
-                success_msg = f"✅ Nuevas entregas creadas: {new_delivery_names}"
-                delivery_info.append(success_msg)
-                _logger.info(f"Created new deliveries: {new_delivery_names}")
-            elif new_moves:
-                move_info = ', '.join([f"{m.product_id.name} (qty: {m.product_uom_qty})" for m in new_moves])
-                success_msg = f"✅ Nuevos movimientos de stock creados: {move_info}"
-                delivery_info.append(success_msg)
-                _logger.info(f"Created new stock moves: {move_info}")
+            if new_pickings:
+                new_names = ', '.join(new_pickings.mapped('name'))
+                delivery_info.append(f"✅ Nuevas entregas creadas: {new_names}")
+                _logger.info(f"Successfully created new deliveries: {new_names}")
             else:
-                info_msg = "ℹ️ Proceso de recreación iniciado. Las nuevas entregas aparecerán según las reglas de stock configuradas."
-                delivery_info.append(info_msg)
-                _logger.info("Stock rule recreation triggered, new deliveries should be created automatically")
+                # Try alternative method
+                _logger.warning("No new deliveries found, trying alternative method")
+                line._action_launch_stock_rule()
                 
-        except Exception as e:
-            error_msg = f"⚠️ Error al recrear entregas: {str(e)}"
-            delivery_info.append(error_msg)
-            _logger.error(f"Error recreating deliveries: {str(e)}")
-        
-        result = '\n'.join(delivery_info) if delivery_info else ""
-        _logger.info(f"Delivery update completed. Result: {result}")
-        return result
-        
-        # Recreate stock moves for this specific line
-        try:
-            _logger.info("Attempting to recreate stock moves...")
-            # Cancel existing stock moves for this line
-            moves_to_cancel = stock_moves.filtered(lambda m: m.state not in ['done', 'cancel'])
-            if moves_to_cancel:
-                moves_to_cancel._action_cancel()
-                _logger.info(f"Cancelled {len(moves_to_cancel)} stock moves")
-            
-            # Force recreation of stock moves for this sale order line
-            _logger.info("Triggering stock rule recreation...")
-            self.sale_order_line_id._action_launch_stock_rule()
-            
-            # Find newly created stock moves
-            new_moves = self.env['stock.move'].search([
-                ('sale_line_id', '=', self.sale_order_line_id.id),
-                ('product_id', '=', self.product_id.id),
-                ('state', 'not in', ['done', 'cancel']),
-                ('id', 'not in', stock_moves.ids)
-            ])
-            
-            _logger.info(f"Found {len(new_moves)} new stock moves: {new_moves.ids}")
-            
-            if new_moves:
-                new_pickings = new_moves.mapped('picking_id').filtered(lambda p: p.state not in ['done', 'cancel'])
-                if new_pickings:
-                    new_picking_names = ', '.join(new_pickings.mapped('name'))
-                    success_msg = f"✅ Entregas creadas: {new_picking_names}"
-                    delivery_info.append(success_msg)
-                    _logger.info(f"Created new pickings: {new_picking_names}")
+                # Check again
+                final_pickings = self.env['stock.picking'].search([
+                    ('origin', '=', order.name),
+                    ('state', 'not in', ['done', 'cancel'])
+                ])
+                
+                if final_pickings:
+                    final_names = ', '.join(final_pickings.mapped('name'))
+                    delivery_info.append(f"✅ Entregas creadas (método alternativo): {final_names}")
+                    _logger.info(f"Created deliveries with alternative method: {final_names}")
                 else:
-                    info_msg = "ℹ️ Movimientos de stock creados pero no se necesitan nuevas entregas"
-                    delivery_info.append(info_msg)
-                    _logger.info("Stock moves created but no new deliveries needed")
-            else:
-                info_msg = "ℹ️ No se crearon nuevos movimientos de stock (puede no ser necesario según el tipo de BOM)"
-                delivery_info.append(info_msg)
-                _logger.info("No new stock moves created (may not be needed based on BOM type)")
-                
+                    delivery_info.append("ℹ️ Las entregas se crearán automáticamente según las reglas de stock")
+            
         except Exception as e:
-            error_msg = f"⚠️ Error al recrear movimientos de stock: {str(e)}"
+            error_msg = f"⚠️ Error en actualización de entregas: {str(e)}"
             delivery_info.append(error_msg)
-            _logger.error(f"Error recreating stock moves: {str(e)}")
+            _logger.error(f"Error in delivery update: {str(e)}")
+            import traceback
+            _logger.error(traceback.format_exc())
         
-        result = '\n'.join(delivery_info) if delivery_info else ""
+        result = '\n'.join(delivery_info)
         _logger.info(f"Delivery update completed. Result: {result}")
         return result
 
