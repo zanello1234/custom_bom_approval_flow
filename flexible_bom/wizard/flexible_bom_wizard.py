@@ -301,6 +301,9 @@ class FlexibleBomWizard(models.TransientModel):
                 'created_bom_id': new_bom.id,
                 'creation_message': full_message
             })
+            
+            # Force refresh of the wizard view to show updated state
+            self.env.cr.commit()  # Ensure changes are committed
                 
             # Show notification using message_post
             self.sale_order_line_id.order_id.message_post(
@@ -308,16 +311,15 @@ class FlexibleBomWizard(models.TransientModel):
                 message_type='notification'
             )
             
-            # Return success notification and reload form
+            # Return action to reload the wizard with updated state
             return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'type': 'success',
-                    'title': 'BOM Flexible Creada',
-                    'message': f'BOM "{new_bom.code}" creada exitosamente. Puede usar el botón "Crear Nuevo Delivery" ahora.',
-                    'sticky': False,
-                }
+                'type': 'ir.actions.act_window',
+                'res_model': 'flexible.bom.wizard',
+                'res_id': self.id,
+                'view_mode': 'form',
+                'view_type': 'form',
+                'target': 'new',
+                'context': dict(self.env.context),
             }
         else:
             # For draft orders, update price automatically and close window
@@ -396,12 +398,14 @@ class FlexibleBomWizard(models.TransientModel):
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'type': 'danger',
-                    'title': 'Error',
-                    'message': 'No hay BOM flexible asignada a esta línea de venta',
-                    'sticky': False,
+                    'type': 'warning',
+                    'title': 'BOM Flexible Requerida',
+                    'message': 'Primero debe crear/modificar la BOM usando el botón "Create/Modify BOM", luego podrá crear la nueva entrega.',
+                    'sticky': True,
                 }
             }
+        else:
+            _logger.info(f"✅ Flexible BOM found: {line.flexible_bom_id.id}")
         
         try:
             delivery_created = False

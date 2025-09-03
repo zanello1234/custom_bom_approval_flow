@@ -72,10 +72,16 @@
                         <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" 
                                 invisible="not order_confirmed or bom_created"/>
                         
-                        <!-- Create delivery button (visible after BOM is created for confirmed orders) -->
+                        <!-- Create delivery button (always visible for confirmed orders) -->
                         <button name="action_create_delivery" string="🚚 Crear Nuevo Delivery" type="object" class="btn-success" 
-                                invisible="not order_confirmed or not bom_created" 
-                                help="Crea una nueva entrega usando los componentes de la BOM flexible"/>
+                                invisible="not order_confirmed" 
+                                help="Crea una nueva entrega usando los componentes de la BOM flexible personalizada"/>
+                        
+                        <!-- Debug info for testing (remove in production) -->
+                        <div invisible="1">
+                            <field name="order_confirmed"/>
+                            <field name="bom_created"/>
+                        </div>
                         
                         <!-- Close button (changes text after BOM creation) -->
                         <button string="Cancel" class="btn-secondary" special="cancel" invisible="bom_created"/>
