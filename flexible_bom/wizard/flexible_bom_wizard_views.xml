@@ -8,16 +8,8 @@
             <field name="arch" type="xml">
                 <form string="Configurar BOM Flexible">
                     <sheet>
-                        <!-- Success message for created BOM -->
-                        <div class="alert alert-success" role="alert" invisible="not bom_created">
-                            <strong>✅ BOM Flexible Creada Exitosamente</strong>
-                            <field name="creation_message" readonly="1" nolabel="1"/>
-                            <br/>
-                            <strong>BOM Creada:</strong> <field name="created_bom_id" readonly="1" nolabel="1"/>
-                        </div>
-                        
                         <!-- Warning for confirmed orders -->
-                        <div class="alert alert-warning" role="alert" invisible="not order_confirmed or bom_created">
+                        <div class="alert alert-warning" role="alert" invisible="not order_confirmed">
                             <strong>⚠️ Advertencia de Orden Confirmada:</strong>
                             <field name="warning_message" readonly="1" nolabel="1"/>
                             <br/><br/>
@@ -26,14 +18,13 @@
                                 <div class="col-12">
                                     <label for="cancel_existing_deliveries" class="o_form_label">Cancelar Entregas Existentes</label>
                                     <field name="cancel_existing_deliveries" widget="boolean_toggle"/>
-                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán al crear la BOM. Use el botón "Crear Nuevo Delivery" para generar la entrega con la BOM personalizada.</small>
+                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán al crear la BOM y se generará una nueva entrega con los componentes personalizados.</small>
                                 </div>
                             </div>
                         </div>
                         
                         <!-- Hidden fields -->
                         <field name="order_confirmed" invisible="1"/>
-                        <field name="bom_created" invisible="1"/>
                         
                         <group>
                             <group>
@@ -66,26 +57,19 @@
                         </notebook>
                     </sheet>
                     <footer>
-                        <!-- Create BOM buttons (hidden after BOM is created) -->
-                        <button name="action_create_bom" string="Create BOM" type="object" class="btn-primary" 
-                                invisible="order_confirmed or bom_created"/>
-                        <button name="action_create_bom" string="⚠️ Create/Modify BOM (Confirmed Order)" type="object" class="btn-warning" 
-                                invisible="not order_confirmed or bom_created"/>
-                        
-                        <!-- Create delivery button (always visible for confirmed orders) -->
-                        <button name="action_create_delivery" string="🚚 Crear Nuevo Delivery" type="object" class="btn-success" 
-                                invisible="not order_confirmed" 
-                                help="Crea una nueva entrega usando los componentes de la BOM flexible personalizada"/>
+                        <!-- Single Create button for all scenarios -->
+                        <button name="action_create_bom_and_delivery" string="Crear BOM y Entrega" type="object" class="btn-primary" 
+                                invisible="not order_confirmed"/>
+                        <button name="action_create_bom_and_delivery" string="Crear BOM" type="object" class="btn-primary" 
+                                invisible="order_confirmed"/>
                         
                         <!-- Debug info for testing (remove in production) -->
                         <div invisible="1">
                             <field name="order_confirmed"/>
-                            <field name="bom_created"/>
                         </div>
                         
-                        <!-- Close button (changes text after BOM creation) -->
-                        <button string="Cancel" class="btn-secondary" special="cancel" invisible="bom_created"/>
-                        <button string="Close" class="btn-secondary" special="cancel" invisible="not bom_created"/>
+                        <!-- Close button -->
+                        <button string="Cancelar" class="btn-secondary" special="cancel"/>
                     </footer>
                 </form>
             </field>

@@ -50,12 +50,6 @@ class FlexibleBomWizard(models.TransientModel):
     )
     
     # Fields to track BOM creation status
-    bom_created = fields.Boolean(
-        string='BOM Created',
-        default=False,
-        help='Indicates if the flexible BOM has been created'
-    )
-    
     created_bom_id = fields.Many2one(
         'mrp.bom',
         string='Created BOM',
@@ -194,11 +188,11 @@ class FlexibleBomWizard(models.TransientModel):
                 }
             }
 
-    def action_create_bom(self):
-        """Create the flexible BOM and associate it with the sale order line"""
+    def action_create_bom_and_delivery(self):
+        """Create the flexible BOM and delivery in one step"""
         self.ensure_one()
         
-        _logger.info(f"=== Starting BOM creation ===")
+        _logger.info(f"=== Starting BOM and delivery creation ===")
         _logger.info(f"Product: {self.product_id.name}")
         _logger.info(f"Order confirmed: {self.order_confirmed}")
         _logger.info(f"Cancel existing deliveries: {self.cancel_existing_deliveries}")
@@ -248,10 +242,6 @@ class FlexibleBomWizard(models.TransientModel):
             'code': bom_code,
         }
         
-        # Create routing if needed (simplified for Odoo 18 compatibility)
-        # For now, we'll skip routing creation to avoid compatibility issues
-        # This can be enhanced later once we understand Odoo 18's routing structure better
-        
         new_bom = self.env['mrp.bom'].create(bom_vals)
         
         # Create BOM lines
@@ -269,62 +259,79 @@ class FlexibleBomWizard(models.TransientModel):
         self.sale_order_line_id.flexible_bom_id = new_bom.id
         _logger.info(f"✅ Sale order line {self.sale_order_line_id.id} now has flexible_bom_id: {self.sale_order_line_id.flexible_bom_id}")
         
-        # Handle delivery cancellation for confirmed orders (only cancel, don't recreate yet)
-        delivery_message = ""
-        _logger.info(f"=== DELIVERY HANDLING ===")
-        _logger.info(f"self.order_confirmed = {self.order_confirmed}")
+        # Store created BOM
+        self.created_bom_id = new_bom.id
         
-        if self.order_confirmed and self.cancel_existing_deliveries:
-            _logger.info("Order confirmed and cancellation enabled, cancelling existing deliveries...")
-            try:
-                delivery_message = self._cancel_existing_deliveries()
-                _logger.info(f"Delivery cancellation completed with message: {delivery_message}")
-            except Exception as e:
-                error_msg = f"Error durante cancelación de entregas: {str(e)}"
-                _logger.error(error_msg)
-                delivery_message = error_msg
-        else:
-            _logger.info("Order not confirmed or cancellation disabled, skipping delivery cancellation")
-        
-        # Handle price updates differently for confirmed orders
+        # For confirmed orders, also create delivery
         if self.order_confirmed:
-            # For confirmed orders, update wizard state and keep open
-            full_message = f'BOM Flexible "{new_bom.code}" ha sido creada exitosamente.'
-            if delivery_message:
-                full_message += f'\n\n{delivery_message}'
+            # Cancel existing deliveries first
+            if self.cancel_existing_deliveries:
+                try:
+                    delivery_message = self._cancel_existing_deliveries()
+                    _logger.info(f"Delivery cancellation completed with message: {delivery_message}")
+                except Exception as e:
+                    error_msg = f"Error durante cancelación de entregas: {str(e)}"
+                    _logger.error(error_msg)
             
-            full_message += '\n\n💡 Use el botón "Crear Nuevo Delivery" para generar la entrega con la BOM personalizada.'
-            
-            # Update wizard fields to show BOM creation status
-            self.write({
-                'bom_created': True,
-                'created_bom_id': new_bom.id,
-                'creation_message': full_message
-            })
-            
-            # Force refresh of the wizard view to show updated state
-            self.env.cr.commit()  # Ensure changes are committed
-                
-            # Show notification using message_post
-            self.sale_order_line_id.order_id.message_post(
-                body=f"✅ {full_message}",
-                message_type='notification'
-            )
-            
-            # Return action to reload the wizard with updated state
-            return {
-                'type': 'ir.actions.act_window',
-                'res_model': 'flexible.bom.wizard',
-                'res_id': self.id,
-                'view_mode': 'form',
-                'view_type': 'form',
-                'target': 'new',
-                'context': dict(self.env.context),
-            }
+            # Create new delivery
+            try:
+                result = self._create_delivery_with_flexible_bom()
+                if result.get('success'):
+                    success_msg = f'✅ BOM Flexible "{new_bom.code}" creada y nueva entrega generada exitosamente.'
+                    if result.get('picking_name'):
+                        success_msg += f'\n📦 Nueva entrega: {result["picking_name"]}'
+                    
+                    return {
+                        'type': 'ir.actions.client',
+                        'tag': 'display_notification',
+                        'params': {
+                            'title': 'BOM y Entrega Creados',
+                            'message': success_msg,
+                            'type': 'success',
+                            'sticky': True,
+                        }
+                    }
+                else:
+                    error_msg = f'BOM creada, pero error en entrega: {result.get("error", "Error desconocido")}'
+                    return {
+                        'type': 'ir.actions.client',
+                        'tag': 'display_notification',
+                        'params': {
+                            'title': 'BOM Creada - Error en Entrega',
+                            'message': error_msg,
+                            'type': 'warning',
+                            'sticky': True,
+                        }
+                    }
+            except Exception as e:
+                error_msg = f'BOM creada, pero error en entrega: {str(e)}'
+                _logger.error(error_msg)
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'BOM Creada - Error en Entrega',
+                        'message': error_msg,
+                        'type': 'warning',
+                        'sticky': True,
+                    }
+                }
         else:
-            # For draft orders, update price automatically and close window
+            # For draft orders, update price automatically
             self._update_sale_line_price()
-            return {'type': 'ir.actions.act_window_close'}
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'BOM Creada',
+                    'message': f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.',
+                    'type': 'success',
+                }
+            }
+
+    def action_create_bom(self):
+        """Legacy method - redirect to new combined action"""
+        return self.action_create_bom_and_delivery()
 
     def _update_sale_line_price(self):
         """Update sale order line price based on BOM components"""
@@ -384,10 +391,9 @@ class FlexibleBomWizard(models.TransientModel):
         _logger.info(f"Delivery cancellation completed. Result: {result}")
         return result
 
-    def action_create_delivery(self):
-        """Create new delivery with the flexible BOM components (new separate action)"""
-        _logger.info(f"=== CREATING NEW DELIVERY WITH FLEXIBLE BOM ===")
-        _logger.info(f"Sale order line: {self.sale_order_line_id.id}")
+    def _create_delivery_with_flexible_bom(self):
+        """Helper method to create delivery with flexible BOM - returns result dict"""
+        _logger.info(f"=== CREATING DELIVERY WITH FLEXIBLE BOM ===")
         
         order = self.sale_order_line_id.order_id
         line = self.sale_order_line_id
@@ -395,22 +401,11 @@ class FlexibleBomWizard(models.TransientModel):
         # Verify we have a flexible BOM
         if not line.flexible_bom_id:
             return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'type': 'warning',
-                    'title': 'BOM Flexible Requerida',
-                    'message': 'Primero debe crear/modificar la BOM usando el botón "Create/Modify BOM", luego podrá crear la nueva entrega.',
-                    'sticky': True,
-                }
+                'success': False,
+                'error': 'No flexible BOM found on sale order line'
             }
-        else:
-            _logger.info(f"✅ Flexible BOM found: {line.flexible_bom_id.id}")
         
         try:
-            delivery_created = False
-            delivery_name = ""
-            
             # Method 1: Try using stock rule with flexible BOM context
             _logger.info("🔄 Method 1: Using _action_launch_stock_rule() with flexible BOM context")
             
@@ -432,169 +427,119 @@ class FlexibleBomWizard(models.TransientModel):
                 
                 if new_pickings:
                     delivery_name = ', '.join(new_pickings.mapped('name'))
-                    delivery_created = True
                     _logger.info(f"✅ Method 1 SUCCESS: Created deliveries: {delivery_name}")
+                    return {
+                        'success': True,
+                        'picking_name': delivery_name,
+                        'method': 'stock_rule'
+                    }
                     
-                    # Verify linkage for Method 1
-                    for picking in new_pickings:
-                        _logger.info(f"🔗 Method 1 Picking verification for {picking.name}:")
-                        _logger.info(f"   - Origin: {picking.origin}")
-                        
-                        # Check sale_id if field exists
-                        try:
-                            if hasattr(picking, 'sale_id'):
-                                _logger.info(f"   - Sale ID: {picking.sale_id.name if picking.sale_id else 'Not set'}")
-                            else:
-                                _logger.info(f"   - Sale ID: Field not available")
-                        except Exception as e:
-                            _logger.info(f"   - Sale ID: Error checking field - {str(e)}")
-                        
-                        _logger.info(f"   - Group ID: {picking.group_id.name if picking.group_id else 'Not set'}")
-                        _logger.info(f"   - Move sale line IDs: {picking.move_ids.mapped('sale_line_id.id')}")
-                        
-                        # If not properly linked, try to fix it
-                        if picking.origin == order.name:
-                            try:
-                                # Try to link sale_id if field exists
-                                if hasattr(picking, 'sale_id') and not picking.sale_id:
-                                    picking.sale_id = order.id
-                                    
-                                # Ensure procurement group linkage
-                                if order.procurement_group_id and not picking.group_id:
-                                    picking.group_id = order.procurement_group_id.id
-                                    
-                                _logger.info(f"🔧 Fixed linkage for picking {picking.name}")
-                            except Exception as link_error:
-                                _logger.error(f"❌ Could not fix linkage: {str(link_error)}")
-                
             except Exception as e1:
                 _logger.error(f"❌ Method 1 failed: {str(e1)}")
             
             # Method 2: Manual creation if Method 1 failed
-            if not delivery_created:
-                _logger.info("🔄 Method 2: Manual delivery creation")
+            _logger.info("🔄 Method 2: Manual delivery creation")
+            
+            flexible_bom = line.flexible_bom_id
+            bom_lines = flexible_bom.bom_line_ids
+            
+            if bom_lines:
+                # Create picking with proper sale order linkage
+                picking_type = order.warehouse_id.out_type_id
                 
-                flexible_bom = line.flexible_bom_id
-                bom_lines = flexible_bom.bom_line_ids
+                # Ensure procurement group exists and is linked
+                if not order.procurement_group_id:
+                    group_vals = order._prepare_procurement_group()
+                    order.procurement_group_id = self.env['procurement.group'].create(group_vals)
                 
-                if bom_lines:
-                    # Create picking with proper sale order linkage
-                    picking_type = order.warehouse_id.out_type_id
+                picking_vals = {
+                    'picking_type_id': picking_type.id,
+                    'partner_id': order.partner_shipping_id.id,
+                    'origin': order.name,
+                    'location_id': picking_type.default_location_src_id.id,
+                    'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                    'company_id': order.company_id.id,
+                    'state': 'draft',
+                    'group_id': order.procurement_group_id.id,
+                }
+                
+                # Try to add sale_id if the field exists
+                try:
+                    if 'sale_id' in self.env['stock.picking']._fields:
+                        picking_vals['sale_id'] = order.id
+                except Exception:
+                    pass
+                
+                new_picking = self.env['stock.picking'].create(picking_vals)
+                
+                # Create moves for each component
+                moves_created = 0
+                for bom_line in bom_lines:
+                    component_qty = bom_line.product_qty * line.product_uom_qty
                     
-                    # Ensure procurement group exists and is linked
-                    if not order.procurement_group_id:
-                        group_vals = order._prepare_procurement_group()
-                        order.procurement_group_id = self.env['procurement.group'].create(group_vals)
-                    
-                    picking_vals = {
-                        'picking_type_id': picking_type.id,
-                        'partner_id': order.partner_shipping_id.id,
-                        'origin': order.name,
+                    move_vals = {
+                        'name': f"{line.name} - {bom_line.product_id.name}",
+                        'product_id': bom_line.product_id.id,
+                        'product_uom_qty': component_qty,
+                        'product_uom': bom_line.product_uom_id.id,
+                        'picking_id': new_picking.id,
                         'location_id': picking_type.default_location_src_id.id,
                         'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
+                        'sale_line_id': line.id,
                         'company_id': order.company_id.id,
                         'state': 'draft',
-                        'group_id': order.procurement_group_id.id,  # Link to procurement group
+                        'procure_method': 'make_to_stock',
+                        'group_id': order.procurement_group_id.id,
+                        'origin': order.name,
                     }
                     
-                    # Try to add sale_id if the field exists (depends on Odoo version/modules)
-                    try:
-                        if 'sale_id' in self.env['stock.picking']._fields:
-                            picking_vals['sale_id'] = order.id
-                            _logger.info("🔗 Added sale_id to picking")
-                        else:
-                            _logger.info("ℹ️ sale_id field not available in stock.picking")
-                    except Exception as field_error:
-                        _logger.warning(f"⚠️ Could not check sale_id field: {str(field_error)}")
-                    
-                    new_picking = self.env['stock.picking'].create(picking_vals)
-                    
-                    _logger.info(f"📦 Created picking {new_picking.name} linked to sale order {order.name}")
-                    
-                    # Create moves for each component
-                    moves_created = 0
-                    for bom_line in bom_lines:
-                        component_qty = bom_line.product_qty * line.product_uom_qty
-                        
-                        move_vals = {
-                            'name': f"{line.name} - {bom_line.product_id.name}",
-                            'product_id': bom_line.product_id.id,
-                            'product_uom_qty': component_qty,
-                            'product_uom': bom_line.product_uom_id.id,
-                            'picking_id': new_picking.id,
-                            'location_id': picking_type.default_location_src_id.id,
-                            'location_dest_id': order.partner_shipping_id.property_stock_customer.id,
-                            'sale_line_id': line.id,  # Link to specific sale order line
-                            'company_id': order.company_id.id,
-                            'state': 'draft',
-                            'procure_method': 'make_to_stock',
-                            'group_id': order.procurement_group_id.id,  # Link to procurement group
-                            'origin': order.name,  # Reference to sale order
-                        }
-                        
-                        move = self.env['stock.move'].create(move_vals)
-                        moves_created += 1
-                        _logger.info(f"📦 Created move for {bom_line.product_id.name} qty: {component_qty} linked to sale line {line.id}")
-                    
-                    if moves_created > 0:
-                        new_picking.action_confirm()
-                        delivery_name = new_picking.name
-                        delivery_created = True
-                        _logger.info(f"✅ Method 2 SUCCESS: Created picking {delivery_name} with {moves_created} moves linked to SO {order.name}")
-                        
-                        # Verify the linkage
-                        _logger.info(f"🔗 Picking verification:")
-                        _logger.info(f"   - Origin: {new_picking.origin}")
-                        
-                        # Check sale_id if field exists
-                        try:
-                            if hasattr(new_picking, 'sale_id'):
-                                _logger.info(f"   - Sale ID: {new_picking.sale_id.name if new_picking.sale_id else 'Not set'}")
-                            else:
-                                _logger.info(f"   - Sale ID: Field not available")
-                        except Exception as e:
-                            _logger.info(f"   - Sale ID: Error checking field - {str(e)}")
-                            
-                        _logger.info(f"   - Group ID: {new_picking.group_id.name if new_picking.group_id else 'Not set'}")
-                        _logger.info(f"   - Move origins: {new_picking.move_ids.mapped('origin')}")
-                        _logger.info(f"   - Move sale line IDs: {new_picking.move_ids.mapped('sale_line_id.id')}")
-            
-            # Return success notification
-            if delivery_created:
-                return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'type': 'success',
-                        'title': 'Delivery Creado',
-                        'message': f'Nueva entrega creada exitosamente: {delivery_name}',
-                        'sticky': False,
-                    }
-                }
-            else:
-                return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'type': 'warning',
-                        'title': 'Advertencia',
-                        'message': 'No se pudo crear la nueva entrega. Verifique los logs para más detalles.',
-                        'sticky': False,
-                    }
-                }
+                    self.env['stock.move'].create(move_vals)
+                    moves_created += 1
                 
-        except Exception as e:
-            _logger.error(f"Error creating delivery: {str(e)}")
-            import traceback
-            _logger.error(traceback.format_exc())
+                if moves_created > 0:
+                    new_picking.action_confirm()
+                    _logger.info(f"✅ Method 2 SUCCESS: Created picking {new_picking.name} with {moves_created} moves")
+                    return {
+                        'success': True,
+                        'picking_name': new_picking.name,
+                        'method': 'manual'
+                    }
             
+            return {
+                'success': False,
+                'error': 'No BOM lines found or could not create delivery'
+            }
+            
+        except Exception as e:
+            _logger.error(f"Error in _create_delivery_with_flexible_bom: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    def action_create_delivery(self):
+        """Legacy method - creates delivery only (for backward compatibility)"""
+        result = self._create_delivery_with_flexible_bom()
+        
+        if result.get('success'):
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'type': 'danger',
+                    'type': 'success',
+                    'title': 'Delivery Creado',
+                    'message': f'Nueva entrega creada exitosamente: {result["picking_name"]}',
+                    'sticky': False,
+                }
+            }
+        else:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'type': 'warning',
                     'title': 'Error',
-                    'message': f'Error al crear delivery: {str(e)}',
+                    'message': f'No se pudo crear la entrega: {result.get("error", "Error desconocido")}',
                     'sticky': False,
                 }
             }
