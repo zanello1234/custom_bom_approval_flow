@@ -36,10 +36,11 @@ Adds an "Approved" state to Sale Orders requiring approval before confirmation.
     'author': 'Your Company',
     'website': 'https://www.yourcompany.com',
     'category': 'Sales',
-    'depends': ['sale'],
+    'depends': ['sale', 'stock'],
     'data': [
         'views/sale_order_views.xml',
         'views/sale_order_bom_customization_menu.xml',
+        'views/stock_picking_views.xml',
     ],
     'installable': True,
     'auto_install': False,

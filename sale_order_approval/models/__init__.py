@@ -3,3 +3,4 @@
 from . import sale_order
 from . import sale_order_line
 from . import mrp_bom
+from . import stock_picking

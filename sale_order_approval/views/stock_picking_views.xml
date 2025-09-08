@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Extend Stock Picking Form to add Merge Components Button -->
+        <record id="stock_picking_form_merge_components" model="ir.ui.view">
+            <field name="name">stock.picking.form.merge.components</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form"/>
+            <field name="arch" type="xml">
+                <!-- Add button in the header area -->
+                <div name="button_box" position="inside">
+                    <button name="action_merge_duplicate_moves" 
+                            string="Fusionar Componentes" 
+                            type="object" 
+                            class="btn-secondary"
+                            icon="fa-compress"
+                            help="Fusiona movimientos de stock de productos iguales sumando sus cantidades"
+                            invisible="state in ['done', 'cancel']"/>
+                </div>
+            </field>
+        </record>
+    </data>
+</odoo>
