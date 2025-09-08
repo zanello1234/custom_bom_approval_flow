@@ -25,14 +25,14 @@ class StockPicking(models.Model):
                 }
             }
         
-        # Only allow merging in draft, waiting, confirmed, or assigned states
-        if self.state not in ['draft', 'waiting', 'confirmed', 'assigned']:
+        # Only allow merging in states where moves can be modified (not done or cancelled)
+        if self.state in ['done', 'cancel']:
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
                     'title': 'Estado no válido',
-                    'message': 'Solo se pueden fusionar movimientos en estado borrador, esperando, confirmado o asignado.',
+                    'message': f'No se pueden fusionar movimientos en estado {self.state}. Solo se permite en estados: Borrador, En espera, Disponible.',
                     'type': 'warning'
                 }
             }
