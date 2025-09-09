@@ -14,11 +14,13 @@ A comprehensive APP that automatically installs and integrates our complete sale
 📦 **Included Modules:**
 • **Sale Order Approval Workflow** - Multi-stage approval system with Spanish localization
 • **Flexible BOM Configuration** - Dynamic BOM creation from sales orders
+• **Delivery Merge Components** - Smart consolidation of duplicate items in delivery orders
 
 🏭 **Complete Workflow:**
 1. **Draft/Sent** → *Approve* → **Approved** 
 2. **Approved** → *Customize BOM* → **BOM Customization**
 3. **BOM Customization** → *Confirm* → **Sale Order** (creates deliveries/MOs)
+4. **Delivery Orders** → *Merge Components* → **Optimized Deliveries**
 
 💼 **Business Benefits:**
 • **One-Click Installation** - Get the complete solution instantly
@@ -47,8 +49,12 @@ This is a meta-module that provides easy installation and management of the comp
     'website': 'https://www.yourcompany.com',
     'category': 'Sales/Management',
     'depends': [
-        'sale_order_approval',
-        'flexible_bom',
+        'sale',                    # Módulo de ventas base
+        'stock',                   # Módulo de inventario
+        'mrp',                     # Módulo de fabricación
+        'sale_order_approval',     # Workflow de aprobación
+        'flexible_bom',            # BOM flexible
+        'delivery_merge_components', # Fusión de componentes en delivery
     ],
     'data': [],
     'demo': [],
