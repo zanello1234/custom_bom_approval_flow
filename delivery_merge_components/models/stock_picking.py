@@ -47,13 +47,6 @@ class StockPicking(models.Model):
                     'product_uom_qty': total_quantity,
                 })
                 
-                # Handle stock reservations if any
-                total_reserved = sum(move.reserved_availability for move in moves)
-                if total_reserved > 0:
-                    main_move.write({
-                        'reserved_availability': total_reserved,
-                    })
-                
                 # Delete duplicate moves
                 for dup_move in duplicate_moves:
                     # Cancel the move first if it's not done
