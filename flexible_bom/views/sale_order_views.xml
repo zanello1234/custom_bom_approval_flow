@@ -11,12 +11,18 @@
                 <xpath expr="//field[@name='order_line']/list//field[@name='product_template_id']" position="after">
                     <field name="show_flexible_bom_button" column_invisible="True"/>
                     <field name="flexible_bom_id" column_invisible="True"/>
+                    <field name="cost_updated_from_bom" column_invisible="True"/>
                     <button name="action_create_flexible_bom" 
                             type="object" 
                             icon="fa-cogs" 
                             title="Configurar BOM Flexible"
                             invisible="not show_flexible_bom_button"
                             class="btn-link"/>
+                </xpath>
+                
+                <!-- Add BOM update indicator in price field -->
+                <xpath expr="//field[@name='order_line']/list//field[@name='price_unit']" position="attributes">
+                    <attribute name="decoration-info">cost_updated_from_bom</attribute>
                 </xpath>
                 
                 <!-- Add fields to the form view inside the order_line -->
@@ -29,6 +35,20 @@
                             icon="fa-cogs"
                             invisible="not show_flexible_bom_button"
                             class="btn-secondary"/>
+                </xpath>
+                
+                <!-- Add cost update fields in the detailed form -->
+                <xpath expr="//field[@name='order_line']/form//field[@name='price_unit']" position="after">
+                    <field name="cost_updated_from_bom" readonly="1" invisible="not cost_updated_from_bom"/>
+                    <field name="last_bom_update" readonly="1" invisible="not cost_updated_from_bom"/>
+                    <field name="original_price" readonly="1" invisible="not cost_updated_from_bom"/>
+                    <button name="action_reset_to_original_price" 
+                            type="object" 
+                            string="Revertir Precio Original"
+                            icon="fa-undo"
+                            invisible="not cost_updated_from_bom"
+                            class="btn-warning btn-sm"
+                            confirm="¿Está seguro de que desea revertir al precio original? Esto eliminará la actualización automática por BOM."/>
                 </xpath>
             </field>
         </record>

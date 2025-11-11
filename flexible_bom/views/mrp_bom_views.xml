@@ -36,6 +36,11 @@
                                 class="oe_stat_button btn-secondary"
                                 invisible="not is_base_bom"
                                 confirm="This will unmark this BOM as base BOM. Flexible BOMs derived from it may stop working properly. Are you sure?"/>
+                        <button name="action_update_product_cost" 
+                                string="Recalcular Costo" 
+                                type="object" 
+                                class="oe_stat_button btn-info"
+                                help="Recalcular el costo del producto basado en los componentes de la BOM y actualizar cotizaciones pendientes"/>
                     </div>
                 </xpath>
             </field>

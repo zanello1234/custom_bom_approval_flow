@@ -57,11 +57,15 @@
                         </notebook>
                     </sheet>
                     <footer>
-                        <!-- Single Create button for all scenarios -->
+                        <!-- Primary buttons for creating BOM -->
                         <button name="action_create_bom_and_delivery" string="Crear BOM y Entrega" type="object" class="btn-primary" 
                                 invisible="not order_confirmed"/>
                         <button name="action_create_bom_and_delivery" string="Crear BOM" type="object" class="btn-primary" 
                                 invisible="order_confirmed"/>
+                        
+                        <!-- Alternative button to create and return to sale order -->
+                        <button name="action_create_bom_and_return_to_sale_order" string="Confirmar y Volver a SO" type="object" class="btn-success ml-2" 
+                                help="Crear BOM flexible, actualizar precios y regresar a la orden de venta"/>
                         
                         <!-- Debug info for testing (remove in production) -->
                         <div invisible="1">

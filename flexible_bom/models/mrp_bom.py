@@ -119,7 +119,7 @@ class MrpBom(models.Model):
         return boms
 
     def write(self, vals):
-        """Override write to handle base BOM validation"""
+        """Override write to handle base BOM validation and cost updates"""
         # If trying to mark as base BOM, validate uniqueness
         if vals.get('is_base_bom'):
             for bom in self:
@@ -139,7 +139,134 @@ class MrpBom(models.Model):
                         'Use "Replace Base BOM" action if you want to replace it.'
                     ) % (bom.product_tmpl_id.name, existing_base_bom.display_name))
         
-        return super().write(vals)
+        # Check if BOM lines are being updated
+        bom_lines_updated = 'bom_line_ids' in vals
+        
+        result = super().write(vals)
+        
+        # If BOM lines were updated, recalculate product costs and update sale order lines
+        if bom_lines_updated:
+            for bom in self:
+                bom._update_product_cost_and_sales()
+        
+        return result
+
+    def _update_product_cost_and_sales(self):
+        """
+        Recalculate product cost based on BOM components and update related sale order lines
+        """
+        self.ensure_one()
+        _logger.info(f"Updating product cost for BOM {self.display_name}")
+        
+        # Calculate new cost based on BOM components
+        new_cost = self._calculate_bom_cost()
+        
+        if new_cost > 0:
+            # Update product cost
+            product = self.product_id if self.product_id else self.product_tmpl_id.product_variant_id
+            if product:
+                old_cost = product.standard_price
+                product.standard_price = new_cost
+                _logger.info(f"Updated product {product.display_name} cost from {old_cost} to {new_cost}")
+                
+                # Update related sale order lines that are not yet confirmed
+                self._update_related_sale_lines(product, new_cost)
+        
+    def _calculate_bom_cost(self):
+        """
+        Calculate the total cost of a BOM based on its components
+        """
+        self.ensure_one()
+        total_cost = 0.0
+        
+        for line in self.bom_line_ids:
+            component_cost = line.product_id.standard_price * line.product_qty
+            total_cost += component_cost
+            _logger.info(f"Component {line.product_id.display_name}: {line.product_qty} x {line.product_id.standard_price} = {component_cost}")
+        
+        _logger.info(f"Total BOM cost calculated: {total_cost}")
+        return total_cost
+    
+    def _update_related_sale_lines(self, product, new_cost):
+        """
+        Update sale order lines that use this product and are not yet confirmed
+        """
+        # Find sale order lines with this product in non-confirmed orders
+        sale_lines = self.env['sale.order.line'].search([
+            ('product_id', '=', product.id),
+            ('order_id.state', 'in', ['draft', 'sent', 'approved', 'bom_customization'])
+        ])
+        
+        if not sale_lines:
+            _logger.info(f"No pending sale order lines found for product {product.display_name}")
+            return
+        
+        _logger.info(f"Found {len(sale_lines)} sale order lines to update for product {product.display_name}")
+        
+        for line in sale_lines:
+            # Store original price if not already stored
+            if not line.original_price:
+                line.original_price = line.price_unit
+            
+            # Calculate new price based on cost + margin
+            margin_percentage = self._calculate_margin_percentage(line.price_unit, line.purchase_price or product.standard_price)
+            new_price = new_cost * (1 + margin_percentage / 100) if margin_percentage > 0 else new_cost * 1.2  # Default 20% margin
+            
+            old_price = line.price_unit
+            line.write({
+                'price_unit': new_price,
+                'cost_updated_from_bom': True,
+                'last_bom_update': fields.Datetime.now()
+            })
+            
+            # Add message to the sale order
+            line.order_id.message_post(
+                body=_(
+                    "💰 Precio actualizado automáticamente para %s:\n"
+                    "• Precio anterior: %s\n"
+                    "• Precio nuevo: %s\n"
+                    "• Precio original: %s\n"
+                    "• Motivo: Actualización de BOM %s\n"
+                    "• Fecha: %s"
+                ) % (
+                    line.product_id.display_name, 
+                    old_price, 
+                    new_price, 
+                    line.original_price,
+                    self.display_name,
+                    fields.Datetime.now()
+                ),
+                subject=_("Actualización de Precio por BOM")
+            )
+            
+            _logger.info(f"Updated sale line {line.id} price from {old_price} to {new_price}")
+    
+    def _calculate_margin_percentage(self, selling_price, cost_price):
+        """
+        Calculate the margin percentage from selling price and cost price
+        """
+        if cost_price <= 0:
+            return 20.0  # Default 20% margin if no cost
+        
+        margin = ((selling_price - cost_price) / cost_price) * 100
+        return max(margin, 0)  # Ensure non-negative margin
+
+    def action_update_product_cost(self):
+        """
+        Manual action to update product cost and related sale order lines
+        """
+        self.ensure_one()
+        self._update_product_cost_and_sales()
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Costo Actualizado'),
+                'message': _('El costo del producto y las cotizaciones pendientes han sido actualizados.'),
+                'type': 'success'
+            }
+        }
 
     def _find_base_bom_for_product(self, product_tmpl):
         """Find the most appropriate base BOM for a product"""
@@ -511,3 +638,42 @@ class MrpBom(models.Model):
             issues.append(f"Flexible BOM '{bom.display_name}' has no base BOM reference")
             
         return issues
+
+
+class MrpBomLine(models.Model):
+    _inherit = 'mrp.bom.line'
+
+    def write(self, vals):
+        """Override write to update BOM costs when lines are modified"""
+        result = super().write(vals)
+        
+        # If quantity or product changed, update BOM costs
+        if 'product_qty' in vals or 'product_id' in vals:
+            boms_to_update = self.mapped('bom_id')
+            for bom in boms_to_update:
+                bom._update_product_cost_and_sales()
+        
+        return result
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Override create to update BOM costs when new lines are added"""
+        lines = super().create(vals_list)
+        
+        # Update costs for affected BOMs
+        boms_to_update = lines.mapped('bom_id')
+        for bom in boms_to_update:
+            bom._update_product_cost_and_sales()
+        
+        return lines
+
+    def unlink(self):
+        """Override unlink to update BOM costs when lines are deleted"""
+        boms_to_update = self.mapped('bom_id')
+        result = super().unlink()
+        
+        # Update costs for affected BOMs
+        for bom in boms_to_update:
+            bom._update_product_cost_and_sales()
+        
+        return result

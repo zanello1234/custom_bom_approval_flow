@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
 
@@ -16,6 +16,44 @@ class SaleOrderLine(models.Model):
         string='Custom BOM',
         help='Custom BOM created for this sale order line'
     )
+    
+    cost_updated_from_bom = fields.Boolean(
+        string='Costo Actualizado por BOM',
+        default=False,
+        help='Indica si el precio de esta línea fue actualizado automáticamente por cambios en la BOM'
+    )
+    
+    last_bom_update = fields.Datetime(
+        string='Última Actualización por BOM',
+        help='Fecha y hora de la última actualización de precio por cambios en BOM'
+    )
+    
+    original_price = fields.Float(
+        string='Precio Original',
+        help='Precio original antes de actualizaciones automáticas por BOM'
+    )
+
+    def action_reset_to_original_price(self):
+        """Reset line price to original price before BOM updates"""
+        self.ensure_one()
+        if self.original_price and self.cost_updated_from_bom:
+            old_price = self.price_unit
+            self.write({
+                'price_unit': self.original_price,
+                'cost_updated_from_bom': False,
+                'last_bom_update': False
+            })
+            
+            self.order_id.message_post(
+                body=_(
+                    "🔄 Precio revertido al original para %s:\n"
+                    "• Precio antes: %s\n"
+                    "• Precio original restaurado: %s"
+                ) % (self.product_id.display_name, old_price, self.original_price),
+                subject=_("Precio Revertido al Original")
+            )
+        
+        return True
 
     def action_create_flexible_bom(self):
         """Open wizard to create/edit flexible BOM"""
