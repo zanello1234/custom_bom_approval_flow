@@ -493,6 +493,10 @@ class FlexibleBomWizard(models.TransientModel):
                         'origin': order.name,
                     }
                     
+                    # Add analytic distribution if supported (requires stock_analytic module)
+                    if 'analytic_distribution' in self.env['stock.move']._fields and 'analytic_distribution' in line._fields:
+                        move_vals['analytic_distribution'] = line.analytic_distribution
+
                     self.env['stock.move'].create(move_vals)
                     moves_created += 1
                 
