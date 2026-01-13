@@ -262,19 +262,6 @@ class FlexibleBomWizard(models.TransientModel):
         # Store created BOM
         self.created_bom_id = new_bom.id
         
-        # Update sale line price for all orders (confirmed or draft)
-        price_update_result = {'price_updated': False}
-        if self.sale_order_line_id:
-            try:
-                price_update_result = self._update_sale_line_price()
-                _logger.info(f"Price update result: {price_update_result}")
-            except Exception as e:
-                _logger.error(f"Error updating sale line price: {e}")
-                price_update_result = {
-                    'price_updated': False,
-                    'error': str(e)
-                }
-        
         # For confirmed orders, also create delivery
         if self.order_confirmed:
             # Cancel existing deliveries first
@@ -294,14 +281,11 @@ class FlexibleBomWizard(models.TransientModel):
                     if result.get('picking_name'):
                         success_msg += f'\n📦 Nueva entrega: {result["picking_name"]}'
                     
-                    # Add formatted price update info
-                    success_msg += self._format_price_update_message(price_update_result)
-                    
                     return {
                         'type': 'ir.actions.client',
                         'tag': 'display_notification',
                         'params': {
-                            'title': 'BOM, Precio y Entrega Actualizados',
+                            'title': 'BOM y Entrega Creados',
                             'message': success_msg,
                             'type': 'success',
                             'sticky': True,
@@ -309,14 +293,13 @@ class FlexibleBomWizard(models.TransientModel):
                     }
                 else:
                     error_msg = f'✅ BOM "{new_bom.code}" creada exitosamente'
-                    error_msg += self._format_price_update_message(price_update_result)
                     error_msg += f'\n⚠️ Error en entrega: {result.get("error", "Error desconocido")}'
                     
                     return {
                         'type': 'ir.actions.client',
                         'tag': 'display_notification',
                         'params': {
-                            'title': 'BOM y Precio Actualizados - Error en Entrega',
+                            'title': 'BOM Creada - Error en Entrega',
                             'message': error_msg,
                             'type': 'warning',
                             'sticky': True,
@@ -336,62 +319,35 @@ class FlexibleBomWizard(models.TransientModel):
                     }
                 }
         else:
-            # For draft orders, update price automatically
-            try:
-                price_update_result = self._update_sale_line_price()
-                _logger.info(f"Price update result: {price_update_result}")
-                
-                if price_update_result.get('price_updated'):
-                    success_msg = f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.'
-                    success_msg += self._format_price_update_message(price_update_result)
-                    
-                    return {
-                        'type': 'ir.actions.client',
-                        'tag': 'display_notification',
-                        'params': {
-                            'title': 'BOM Creada y Precio Actualizado',
-                            'message': success_msg,
-                            'type': 'success',
-                        }
-                    }
-                else:
-                    warning_msg = f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.'
-                    warning_msg += f'\n⚠️ No se pudo actualizar el precio: {price_update_result.get("error", "Error desconocido")}'
-                    
-                    return {
-                        'type': 'ir.actions.client',
-                        'tag': 'display_notification',
-                        'params': {
-                            'title': 'BOM Creada',
-                            'message': warning_msg,
-                            'type': 'warning',
-                        }
-                    }
-            except Exception as e:
-                _logger.error(f"Error updating price: {e}")
-                return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'title': 'BOM Creada',
-                        'message': f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.\n⚠️ Error al actualizar precio: {str(e)}',
-                        'type': 'warning',
-                    }
+            return {
+                'type': 'ir.actions.act_window',
+                'name': f'Orden de Venta {self.sale_order_line_id.order_id.name}',
+                'res_model': 'sale.order',
+                'res_id': self.sale_order_line_id.order_id.id,
+                'view_mode': 'form',
+                'target': 'current',
+                'context': {
+                    'default_state': self.sale_order_line_id.order_id.state,
+                    'show_sale': True,
+                },
+                'flags': {
+                    'mode': 'readonly' if self.sale_order_line_id.order_id.state == 'sale' else 'edit',
                 }
+            }
 
     def action_create_bom(self):
         """Legacy method - redirect to new combined action"""
         return self.action_create_bom_and_delivery()
 
     def action_create_bom_and_return_to_sale_order(self):
-        """Create BOM, update prices and return to the sale order"""
+        """Create BOM and return to the sale order"""
         self.ensure_one()
         
         _logger.info(f"=== CREATING BOM AND RETURNING TO SALE ORDER ===")
         _logger.info(f"Sale order: {self.sale_order_line_id.order_id.name}")
         _logger.info(f"Product: {self.product_id.name}")
         
-        # First create the BOM and update prices
+        # First create the BOM
         result = self.action_create_bom_and_delivery()
         
         # If the result is a notification, we still want to return to the sale order
@@ -433,314 +389,6 @@ class FlexibleBomWizard(models.TransientModel):
                 'mode': 'readonly' if self.sale_order_line_id.order_id.state == 'sale' else 'edit',
             }
         }
-
-    def _format_price_update_message(self, update_result):
-        """Format price update information for user notifications"""
-        if not update_result.get('price_updated'):
-            return ""
-        
-        old_price = update_result.get('old_price', 0.0)
-        new_price = update_result.get('new_price', 0.0)
-        
-        # Calculate price change percentage
-        if old_price > 0:
-            change_percent = ((new_price - old_price) / old_price) * 100
-            if change_percent > 0:
-                change_icon = "📈"
-                change_text = f"(+{change_percent:.1f}%)"
-            elif change_percent < 0:
-                change_icon = "📉" 
-                change_text = f"({change_percent:.1f}%)"
-            else:
-                change_icon = "➡️"
-                change_text = "(sin cambio)"
-        else:
-            change_icon = "💰"
-            change_text = "(precio inicial)"
-        
-        return f"\n{change_icon} Precio actualizado: ${old_price:.2f} → ${new_price:.2f} {change_text}"
-
-    def _force_product_cost_update(self, product, new_cost):
-        """Force update product cost with multiple methods"""
-        _logger.info(f"=== FORCING PRODUCT COST UPDATE ===")
-        _logger.info(f"Product: {product.name}, New cost: {new_cost}")
-        
-        try:
-            # Method 1: Direct field assignment
-            old_cost = product.standard_price
-            product.standard_price = new_cost
-            _logger.info(f"Method 1 - Direct assignment: {old_cost} → {product.standard_price}")
-            
-            # Method 2: Using write method
-            product.write({'standard_price': new_cost})
-            _logger.info(f"Method 2 - Write method: Cost now {product.standard_price}")
-            
-            # Method 3: Update through product template if needed
-            if product.product_tmpl_id.standard_price != new_cost:
-                product.product_tmpl_id.write({'standard_price': new_cost})
-                _logger.info(f"Method 3 - Template updated: {product.product_tmpl_id.standard_price}")
-            
-            # Method 4: Force refresh from database
-            product.refresh()
-            _logger.info(f"Method 4 - After refresh: {product.standard_price}")
-            
-            # Verify the update worked
-            if abs(product.standard_price - new_cost) < 0.01:  # Allow for float precision
-                _logger.info(f"✅ Product cost successfully updated to {product.standard_price}")
-                return True
-            else:
-                _logger.warning(f"⚠️ Product cost update may have failed. Expected: {new_cost}, Actual: {product.standard_price}")
-                return False
-                
-        except Exception as e:
-            _logger.error(f"❌ Error forcing product cost update: {e}")
-            return False
-
-    def _force_sale_line_cost_update(self, sale_line, new_cost):
-        """Force update all cost-related fields in sale order line"""
-        _logger.info(f"=== FORCING SALE LINE COST UPDATE ===")
-        _logger.info(f"Sale line: {sale_line.id}, Product: {sale_line.product_id.name}, New cost: {new_cost}")
-        
-        updated_fields = []
-        
-        try:
-            # List of possible cost field names in sale order lines
-            possible_cost_fields = [
-                'purchase_price',     # Common field for cost in sale lines
-                'cost_price',         # Sometimes used for cost
-                'standard_price',     # Direct reference to product cost
-                'product_cost',       # Another possible cost field
-                'unit_cost',          # Unit cost field
-            ]
-            
-            update_vals = {}
-            
-            for field_name in possible_cost_fields:
-                if field_name in sale_line._fields:
-                    old_value = getattr(sale_line, field_name, 0)
-                    update_vals[field_name] = new_cost
-                    updated_fields.append(f"{field_name}: {old_value} → {new_cost}")
-                    _logger.info(f"Will update {field_name} from {old_value} to {new_cost}")
-            
-            if update_vals:
-                sale_line.write(update_vals)
-                _logger.info(f"Updated sale line cost fields: {updated_fields}")
-            
-            # Force refresh and recompute
-            sale_line.refresh()
-            
-            # Try to trigger margin recalculation if margin fields exist
-            margin_fields = ['margin', 'margin_percent', 'margin_percentage']
-            for margin_field in margin_fields:
-                if margin_field in sale_line._fields:
-                    try:
-                        # Force recomputation of margin
-                        sale_line._compute_margin()
-                        _logger.info(f"Triggered margin recalculation for field: {margin_field}")
-                        break
-                    except:
-                        pass
-            
-            return len(updated_fields) > 0
-            
-        except Exception as e:
-            _logger.error(f"Error updating sale line cost fields: {e}")
-            return False
-
-    def _update_sale_line_price(self):
-        """Update sale order line price based on BOM components"""
-        _logger.info(f"=== UPDATING SALE LINE PRICE ===")
-        
-        # Validate we have all necessary data
-        if not self.sale_order_line_id:
-            _logger.warning("No sale order line found for price update")
-            return {'price_updated': False, 'error': 'No sale order line found'}
-        
-        if not self.bom_line_ids:
-            _logger.warning("No BOM lines found for price calculation")
-            return {'price_updated': False, 'error': 'No BOM lines found'}
-        
-        sale_line = self.sale_order_line_id
-        _logger.info(f"Updating price for sale line ID: {sale_line.id}, Product: {sale_line.product_id.name}")
-        
-        # Calculate total cost from BOM components
-        total_cost = 0.0
-        component_details = []
-        
-        for bom_line in self.bom_line_ids:
-            component_cost = bom_line.product_id.standard_price * bom_line.product_qty
-            total_cost += component_cost
-            component_details.append(f"• {bom_line.product_id.display_name}: {bom_line.product_qty} x {bom_line.product_id.standard_price} = {component_cost}")
-            _logger.info(f"Component: {bom_line.product_id.display_name} - Qty: {bom_line.product_qty} - Unit Cost: {bom_line.product_id.standard_price} - Total: {component_cost}")
-        
-        _logger.info(f"Total BOM cost calculated: {total_cost}")
-        
-        if total_cost > 0:
-            # Store original price if not already stored
-            if not hasattr(sale_line, 'original_price') or not sale_line.original_price:
-                # Create or update the field if it doesn't exist
-                try:
-                    sale_line.write({'original_price': sale_line.price_unit})
-                except Exception:
-                    # If field doesn't exist, just continue without storing
-                    pass
-            
-            # Calculate margin percentage from current price and previous cost
-            current_price = sale_line.price_unit
-            product_cost = sale_line.product_id.standard_price or total_cost
-            
-            # Calculate margin percentage, fallback to 20% if cannot calculate
-            if product_cost > 0:
-                margin_percentage = ((current_price - product_cost) / product_cost) * 100
-                margin_percentage = max(margin_percentage, 20.0)  # Minimum 20% margin
-            else:
-                margin_percentage = 20.0  # Default 20% margin
-            
-            # Calculate new price with same margin
-            new_price = total_cost * (1 + margin_percentage / 100)
-            old_price = sale_line.price_unit
-            
-            # Update sale order line
-            update_vals = {
-                'price_unit': new_price,
-            }
-            
-            # Try to update tracking fields if they exist
-            try:
-                update_vals.update({
-                    'cost_updated_from_bom': True,
-                    'last_bom_update': fields.Datetime.now()
-                })
-            except Exception:
-                # If fields don't exist, just update the price
-                pass
-            
-            # Try to update cost fields in sale order line
-            try:
-                # Check if purchase_price field exists (common cost field in sale lines)
-                if hasattr(sale_line, 'purchase_price'):
-                    update_vals['purchase_price'] = total_cost
-                    _logger.info(f"Updated sale line purchase_price to {total_cost}")
-                
-                # Check if cost_price field exists
-                if hasattr(sale_line, 'cost_price'):
-                    update_vals['cost_price'] = total_cost
-                    _logger.info(f"Updated sale line cost_price to {total_cost}")
-                    
-                # Check if standard_price field exists in sale line
-                if hasattr(sale_line, 'standard_price'):
-                    update_vals['standard_price'] = total_cost
-                    _logger.info(f"Updated sale line standard_price to {total_cost}")
-                    
-            except Exception as e:
-                _logger.warning(f"Could not update sale line cost fields: {e}")
-            
-            sale_line.write(update_vals)
-            
-            # Force refresh the sale line to ensure cost fields are updated
-            sale_line.refresh()
-            
-            # Force update product cost with comprehensive handling
-            cost_updated = self._force_product_cost_update(sale_line.product_id, total_cost)
-            if not cost_updated:
-                _logger.warning("Product cost update may have failed, but continuing with price update")
-                
-            # Force update sale line cost fields
-            sale_cost_updated = self._force_sale_line_cost_update(sale_line, total_cost)
-            if sale_cost_updated:
-                _logger.info("Sale line cost fields updated successfully")
-            else:
-                _logger.warning("No sale line cost fields were updated")
-                
-            # Force recalculation of cost-related computed fields
-            try:
-                # Trigger onchange methods that might recalculate costs
-                sale_line._onchange_product_id()
-                if hasattr(sale_line, '_compute_margin'):
-                    sale_line._compute_margin()  # If margin field exists
-            except Exception as e:
-                _logger.warning(f"Could not trigger cost recalculation: {e}")
-                
-            # Force recalculation of cost-related computed fields
-            try:
-                # Trigger onchange methods that might recalculate costs
-                sale_line._onchange_product_id()
-                if hasattr(sale_line, '_compute_margin'):
-                    sale_line._compute_margin()  # If margin field exists
-            except Exception as e:
-                _logger.warning(f"Could not trigger cost recalculation: {e}")
-            
-            # Get BOM code safely
-            bom_code = "Nueva BOM"
-            try:
-                if self.created_bom_id:
-                    created_bom = self.env['mrp.bom'].browse(self.created_bom_id)
-                    if created_bom.exists() and created_bom.code:
-                        bom_code = created_bom.code
-            except Exception as e:
-                _logger.warning(f"Could not get BOM code: {e}")
-            
-            # Add detailed message to sale order
-            component_breakdown = '\n'.join(component_details)
-            try:
-                cost_info = f"• Costo del producto actualizado: {sale_line.product_id.standard_price:.2f}"
-                
-                sale_line.order_id.message_post(
-                    body=f"""💰 Precio y Costo actualizados por BOM Flexible personalizada:
-
-📋 **Producto:** {sale_line.product_id.display_name}
-🔧 **BOM Flexible:** {bom_code}
-
-💵 **Cambios de Precio:**
-• Precio anterior: {old_price:.2f}
-• Precio nuevo: {new_price:.2f}
-
-💸 **Actualización de Costo:**
-{cost_info}
-
-🧮 **Cálculo de Costo por Componentes:**
-{component_breakdown}
-**Total costo componentes:** {total_cost:.2f}
-
-📈 **Margen aplicado:** {margin_percentage:.1f}%
-📅 **Fecha:** {fields.Datetime.now()}""",
-                    subject="Precio y Costo Actualizados por BOM Flexible"
-                )
-            except Exception as e:
-                _logger.warning(f"Could not post message to sale order: {e}")
-            
-            # Final verification
-            _logger.info(f"=== FINAL VERIFICATION ===")
-            _logger.info(f"Sale line price updated: {old_price} → {sale_line.price_unit}")
-            _logger.info(f"Product cost updated: {sale_line.product_id.standard_price}")
-            _logger.info(f"Expected total cost: {total_cost}")
-            
-            # Check sale line cost fields
-            cost_fields_info = []
-            for field_name in ['purchase_price', 'cost_price', 'standard_price', 'product_cost', 'unit_cost']:
-                if field_name in sale_line._fields:
-                    field_value = getattr(sale_line, field_name, 'N/A')
-                    cost_fields_info.append(f"{field_name}: {field_value}")
-            
-            if cost_fields_info:
-                _logger.info(f"Sale line cost fields: {', '.join(cost_fields_info)}")
-            else:
-                _logger.warning("No recognized cost fields found in sale line")
-            
-            _logger.info(f"Updated sale line price from {old_price} to {new_price} (margin: {margin_percentage:.1f}%)")
-            
-            return {
-                'price_updated': True,
-                'old_price': old_price,
-                'new_price': new_price,
-                'total_cost': total_cost,
-                'margin_percentage': margin_percentage,
-                'product_cost_updated': abs(sale_line.product_id.standard_price - total_cost) < 0.01,
-                'sale_line_cost_updated': sale_cost_updated
-            }
-        else:
-            _logger.warning("No cost calculated from BOM components")
-            return {'price_updated': False, 'reason': 'No cost calculated'}
 
     def _cancel_existing_deliveries(self):
         """Cancel existing deliveries for the sale order (separated from recreation)"""
