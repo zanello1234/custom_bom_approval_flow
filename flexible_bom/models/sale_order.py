@@ -7,6 +7,15 @@ from odoo.exceptions import UserError
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+    def _onchange_partner_id_warning(self):
+        """Override to suppress the pricelist change warning when changing customer"""
+        res = super()._onchange_partner_id_warning()
+        if res and isinstance(res, dict) and res.get('warning'):
+            msg = res['warning'].get('message', '')
+            if 'generates a change in the price list' in msg:
+                return {}
+        return res
+
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
