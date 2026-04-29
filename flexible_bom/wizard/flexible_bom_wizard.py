@@ -264,6 +264,12 @@ class FlexibleBomWizard(models.TransientModel):
         
         # For confirmed orders, also create delivery
         if self.order_confirmed:
+            # Capture active deliveries before any change to detect truly new ones.
+            pre_existing_picking_ids = self.env['stock.picking'].search([
+                ('origin', '=', self.sale_order_line_id.order_id.name),
+                ('state', 'not in', ['done', 'cancel'])
+            ]).ids
+
             # Cancel existing deliveries first
             if self.cancel_existing_deliveries:
                 try:
@@ -275,7 +281,9 @@ class FlexibleBomWizard(models.TransientModel):
             
             # Create new delivery
             try:
-                result = self._create_delivery_with_flexible_bom()
+                result = self._create_delivery_with_flexible_bom(
+                    existing_picking_ids=pre_existing_picking_ids,
+                )
                 if result.get('success'):
                     success_msg = f'✅ BOM Flexible "{new_bom.code}" creada y nueva entrega generada exitosamente.'
                     if result.get('picking_name'):
@@ -434,9 +442,10 @@ class FlexibleBomWizard(models.TransientModel):
         _logger.info(f"Delivery cancellation completed. Result: {result}")
         return result
 
-    def _create_delivery_with_flexible_bom(self):
+    def _create_delivery_with_flexible_bom(self, existing_picking_ids=None):
         """Helper method to create delivery with flexible BOM - returns result dict"""
         _logger.info(f"=== CREATING DELIVERY WITH FLEXIBLE BOM ===")
+        existing_picking_ids = set(existing_picking_ids or [])
         
         order = self.sale_order_line_id.order_id
         line = self.sale_order_line_id
@@ -462,11 +471,14 @@ class FlexibleBomWizard(models.TransientModel):
                 line_with_context._action_launch_stock_rule()
                 self.env.cr.commit()
                 
-                # Check if delivery was created
-                new_pickings = self.env['stock.picking'].search([
+                # Check if truly new deliveries were created.
+                candidate_pickings = self.env['stock.picking'].search([
                     ('origin', '=', order.name),
                     ('state', 'not in', ['done', 'cancel'])
                 ])
+                new_pickings = candidate_pickings.filtered(
+                    lambda p: p.id not in existing_picking_ids
+                )
                 
                 if new_pickings:
                     delivery_name = ', '.join(new_pickings.mapped('name'))
@@ -476,6 +488,10 @@ class FlexibleBomWizard(models.TransientModel):
                         'picking_name': delivery_name,
                         'method': 'stock_rule'
                     }
+
+                _logger.info(
+                    "Method 1 did not create new deliveries (only pre-existing pickings found)."
+                )
                     
             except Exception as e1:
                 _logger.error(f"❌ Method 1 failed: {str(e1)}")
