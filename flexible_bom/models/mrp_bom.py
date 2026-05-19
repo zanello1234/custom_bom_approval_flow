@@ -176,9 +176,24 @@ class MrpBom(models.Model):
 
     @api.model
     def _bom_find(self, products, **kwargs):
-        """Override to prefer base BOMs for manufacturing orders"""
+        """Override to prefer base BOMs for manufacturing orders.
+        
+        IMPORTANT: This override is designed for sale/manufacturing contexts
+        only. It must NOT interfere with purchase order processing, where
+        phantom BOM handling follows a different flow.
+        """
         # First get the standard result
         result = super()._bom_find(products, **kwargs)
+        
+        # Guard: Skip custom logic in purchase order context to prevent
+        # interference with PO kit product handling (phantom BOM explosion).
+        # Purchase orders handle kit products through purchase_mrp module
+        # and should use standard _bom_find results only.
+        if self.env.context.get('purchase_order_id') or \
+           self.env.context.get('default_purchase_line_id') or \
+           self.env.context.get('active_model') == 'purchase.order' or \
+           self.env.context.get('active_model') == 'purchase.order.line':
+            return result
         
         # Aggressive validation and singleton enforcement
         if result and not isinstance(result, dict):
@@ -195,14 +210,15 @@ class MrpBom(models.Model):
                     result[product] = bom[0]
                     result[product].ensure_one()  # Validate singleton
         
-        # Extract parameters
-        bom_type = kwargs.get('bom_type', 'normal')
+        # Extract parameters - use False as default to match Odoo 18's
+        # standard _bom_find signature (False = find any BOM type)
+        bom_type = kwargs.get('bom_type', False)
         company_id = kwargs.get('company_id', False)
         
         # Only override for normal manufacturing orders, not phantom BOMs
-        if bom_type == 'phantom':
+        # Also skip if bom_type is False (generic search, e.g. from purchase)
+        if bom_type == 'phantom' or not bom_type:
             return result
-            
         # Ensure we have a products recordset
         if not hasattr(products, 'ids'):
             products = self.env['product.product'].browse(products.id if hasattr(products, 'id') else products)
