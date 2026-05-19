@@ -116,24 +116,30 @@ class SaleOrderLine(models.Model):
         When a product has a KIT BOM with sub-KIT components, 
         create delivery for all leaf components instead.
         Uses flexible BOM if available, otherwise uses base BOM.
+        
+        IMPORTANT: Only applies custom logic when the line has an explicitly
+        assigned flexible_bom_id AND belongs to a sale order. This prevents
+        interference with purchase orders and standard kit processing.
         """
+        # Guard: Only apply custom KIT logic for sale order lines that have
+        # a flexible BOM explicitly assigned. Otherwise, let Odoo handle
+        # kit explosion natively (works correctly for both SO and PO).
+        has_flexible_bom = hasattr(self, 'flexible_bom_id') and self.flexible_bom_id
+        is_sale_context = self.order_id and self.order_id.state in (
+            'sale', 'done', 'sent', 'approved', 'bom_customization'
+        )
+        
+        if not has_flexible_bom or not is_sale_context:
+            _logger.info(
+                f"🔄 Using standard stock rule for line {self.id} "
+                f"(flexible_bom={has_flexible_bom}, sale_context={is_sale_context})"
+            )
+            return super()._action_launch_stock_rule()
+        
         _logger.info(f"Launching stock rule for sale line {self.id} - Product: {self.product_id.display_name}")
         
-        # First priority: Check if this sale line has a flexible BOM assigned
-        bom = None
-        if hasattr(self, 'flexible_bom_id') and self.flexible_bom_id:
-            bom = self.flexible_bom_id
-            _logger.info(f"✅ Using assigned flexible BOM: {bom.display_name} (ID: {bom.id})")
-        else:
-            # Fallback: Get the base BOM for this product
-            bom = self.env['mrp.bom']._bom_find(
-                self.product_id,
-                company_id=self.company_id.id
-            )
-            if bom:
-                _logger.info(f"⚠️ No flexible BOM found, using base BOM: {bom.display_name}")
-            else:
-                _logger.info(f"❌ No BOM found for product {self.product_id.display_name}")
+        bom = self.flexible_bom_id
+        _logger.info(f"✅ Using assigned flexible BOM: {bom.display_name} (ID: {bom.id})")
         
         if bom and bom.type == 'phantom':  # KIT BOM
             _logger.info(f"🔧 Processing KIT BOM {bom.display_name} for product {self.product_id.display_name}")
