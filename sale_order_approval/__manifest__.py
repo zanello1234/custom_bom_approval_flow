@@ -1,6 +1,6 @@
 {
     'name': 'Sale Order Approval Workflow',
-    'version': '18.0.1.2.1',
+    'version': '18.0.1.2.2',
     'summary': '✅ Add Approval state to Sale Orders - Required step before confirmation',
     'description': """
 Sale Order Approval Workflow
