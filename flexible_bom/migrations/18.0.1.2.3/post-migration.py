@@ -8,6 +8,6 @@ Python/XML and adds a new computed field that resolves on demand.
 """
 
 
-def migrate(cr, installed_version):
+def migrate(cr, version):
     # Intentionally no-op: the upgrade carries no schema or data changes.
     return
