@@ -1,6 +1,6 @@
 {
     'name': 'Flexible BOM - Custom Manufacturing & Kits',
-    'version': '18.0.1.2.2',
+    'version': '18.0.1.2.3',
     'summary': '🔧 Create custom BOMs from sales orders | Manufacturing & Kit BOMs | Interactive wizard configuration',
     'description': """
 Flexible BOM - Custom Manufacturing & Kit Configuration

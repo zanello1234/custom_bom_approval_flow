@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from datetime import timedelta
 import logging
@@ -73,7 +73,14 @@ class FlexibleBomWizard(models.TransientModel):
         help='Si está marcado, las entregas existentes se cancelarán y recrearán basándose en el nuevo BOM. '
              'Si no está marcado, las entregas permanecerán como están (no recomendado para cambios importantes de BOM).'
     )
-    
+
+    has_active_deliveries = fields.Boolean(
+        string='Tiene Entregas Activas',
+        compute='_compute_has_active_deliveries',
+        help='True si la orden de venta tiene pickings activos (no done/cancel). '
+             'Cuando es True, cancel_existing_deliveries se fuerza a True para evitar doble explosión de kit.'
+    )
+
     warning_message = fields.Text(
         string='Warning Message',
         help='Warning message for confirmed orders'
@@ -89,6 +96,27 @@ class FlexibleBomWizard(models.TransientModel):
         compute='_compute_base_bom_info',
         help='Information about which base BOM is being used'
     )
+
+    @api.depends('sale_order_line_id')
+    def _compute_has_active_deliveries(self):
+        """Detect whether the related sale order already has active pickings.
+
+        When True, the wizard MUST cancel existing deliveries before creating
+        the new one. Otherwise the flexible BOM explosion runs on top of the
+        original kit moves, leaving two parallel sets of moves linked to the
+        same sale.order.line and producing the cryptic 'string of numbers'
+        error users have reported (the repr of a stock.move recordset).
+        """
+        Picking = self.env['stock.picking']
+        for wizard in self:
+            if wizard.sale_order_line_id and wizard.sale_order_line_id.order_id:
+                active = Picking.search_count([
+                    ('origin', '=', wizard.sale_order_line_id.order_id.name),
+                    ('state', 'not in', ['done', 'cancel']),
+                ])
+                wizard.has_active_deliveries = bool(active)
+            else:
+                wizard.has_active_deliveries = False
 
     @api.depends('base_bom_id', 'product_id')
     def _compute_base_bom_info(self):
@@ -264,6 +292,24 @@ class FlexibleBomWizard(models.TransientModel):
         
         # For confirmed orders, also create delivery
         if self.order_confirmed:
+            # SAFETY: when active pickings exist they MUST be cancelled before
+            # exploding the new flexible BOM. Skipping cancellation leaves the
+            # original kit moves in place and the new explosion creates a
+            # parallel set of moves on the same sale.order.line, which later
+            # surfaces as the cryptic "stock.move(<ids>...)" error in the UI.
+            self._compute_has_active_deliveries()
+            force_cancel = self.has_active_deliveries and not self.cancel_existing_deliveries
+            if force_cancel:
+                _logger.warning(
+                    "🛡️ Forcing delivery cancellation on SO %s: user unchecked "
+                    "cancel_existing_deliveries but %s has active pickings. "
+                    "Proceeding without cancellation would cause double BOM "
+                    "explosion on the same sale order line.",
+                    self.sale_order_line_id.order_id.name,
+                    self.sale_order_line_id.order_id.name,
+                )
+                self.cancel_existing_deliveries = True
+
             # Cancel existing deliveries first
             if self.cancel_existing_deliveries:
                 try:
@@ -272,7 +318,26 @@ class FlexibleBomWizard(models.TransientModel):
                 except Exception as e:
                     error_msg = f"Error durante cancelación de entregas: {str(e)}"
                     _logger.error(error_msg)
-            
+
+            # Last-line guard: if active pickings still remain at this point
+            # (cancellation failed silently for some reason), refuse to create
+            # a new delivery instead of producing a corrupt parallel set of
+            # moves. Surface a clear UserError so the operator can investigate.
+            remaining = self.env['stock.picking'].search_count([
+                ('origin', '=', self.sale_order_line_id.order_id.name),
+                ('state', 'not in', ['done', 'cancel']),
+            ])
+            if remaining:
+                raise UserError(_(
+                    "No se puede generar la nueva entrega para la orden %s: "
+                    "quedan %s pickings activos que no pudieron cancelarse. "
+                    "Revisá manualmente las entregas existentes (cancelalas o "
+                    "validalas) antes de reintentar la creación de la BOM "
+                    "flexible. Crear una entrega adicional con la nueva BOM "
+                    "dejaría dos sets paralelos de movimientos sobre la misma "
+                    "línea de venta."
+                ) % (self.sale_order_line_id.order_id.name, remaining))
+
             # Create new delivery
             try:
                 result = self._create_delivery_with_flexible_bom()

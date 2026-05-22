@@ -17,14 +17,21 @@
                             <div class="row" invisible="not order_confirmed">
                                 <div class="col-12">
                                     <label for="cancel_existing_deliveries" class="o_form_label">Cancelar Entregas Existentes</label>
-                                    <field name="cancel_existing_deliveries" widget="boolean_toggle"/>
-                                    <small class="text-muted d-block">Si está activado, las entregas existentes se cancelarán al crear la BOM y se generará una nueva entrega con los componentes personalizados.</small>
+                                    <field name="cancel_existing_deliveries" widget="boolean_toggle" readonly="has_active_deliveries"/>
+                                    <small class="text-muted d-block" invisible="has_active_deliveries">
+                                        Si está activado, las entregas existentes se cancelarán al crear la BOM y se generará una nueva entrega con los componentes personalizados.
+                                    </small>
+                                    <small class="text-danger d-block" invisible="not has_active_deliveries">
+                                        <strong>⛔ Esta orden tiene entregas activas.</strong>
+                                        La cancelación previa es obligatoria: crear una entrega nueva sin cancelar las anteriores deja dos sets paralelos de movimientos sobre la misma línea y rompe el flujo de despacho.
+                                    </small>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Hidden fields -->
                         <field name="order_confirmed" invisible="1"/>
+                        <field name="has_active_deliveries" invisible="1"/>
                         
                         <group>
                             <group>
