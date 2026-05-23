@@ -514,6 +514,14 @@ class FlexibleBomWizard(models.TransientModel):
             }
         
         try:
+            # Track pickings that existed before running stock rules.
+            # This is critical when we keep previous deliveries and expect a new one in parallel.
+            existing_pickings_before = self.env['stock.picking'].search([
+                ('origin', '=', order.name),
+                ('state', 'not in', ['done', 'cancel'])
+            ])
+            existing_picking_ids = set(existing_pickings_before.ids)
+
             # Method 1: Try using stock rule with flexible BOM context
             _logger.info("🔄 Method 1: Using _action_launch_stock_rule() with flexible BOM context")
             
@@ -525,22 +533,27 @@ class FlexibleBomWizard(models.TransientModel):
                 )
                 
                 line_with_context._action_launch_stock_rule()
-                self.env.cr.commit()
                 
-                # Check if delivery was created
-                new_pickings = self.env['stock.picking'].search([
+                # Check if at least one new delivery was actually created
+                pickings_after = self.env['stock.picking'].search([
                     ('origin', '=', order.name),
                     ('state', 'not in', ['done', 'cancel'])
                 ])
+                created_pickings = pickings_after.filtered(lambda p: p.id not in existing_picking_ids)
                 
-                if new_pickings:
-                    delivery_name = ', '.join(new_pickings.mapped('name'))
+                if created_pickings:
+                    delivery_name = ', '.join(created_pickings.mapped('name'))
                     _logger.info(f"✅ Method 1 SUCCESS: Created deliveries: {delivery_name}")
                     return {
                         'success': True,
                         'picking_name': delivery_name,
                         'method': 'stock_rule'
                     }
+
+                _logger.warning(
+                    "⚠️ Method 1 did not create a new picking. "
+                    f"Pickings before: {list(existing_picking_ids)} | after: {pickings_after.ids}"
+                )
                     
             except Exception as e1:
                 _logger.error(f"❌ Method 1 failed: {str(e1)}")
