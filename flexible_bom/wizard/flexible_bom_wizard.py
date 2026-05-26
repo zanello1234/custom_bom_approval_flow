@@ -293,26 +293,57 @@ class FlexibleBomWizard(models.TransientModel):
         # For confirmed orders, manage deliveries according to toggle
         if self.order_confirmed:
             if not self.cancel_existing_deliveries:
-                # Toggle OFF: user wants to keep existing deliveries unchanged.
-                # Only the BOM is saved; no delivery is cancelled or created.
-                # This avoids parallel move sets on the same sale order line.
+                # Toggle OFF: keep existing deliveries and create a new one
+                # with the flexible BOM components (no cancellation).
                 _logger.info(
-                    "cancel_existing_deliveries=False: BOM saved, deliveries unchanged for SO %s",
+                    "cancel_existing_deliveries=False: keeping existing deliveries, "
+                    "creating new delivery for SO %s",
                     self.sale_order_line_id.order_id.name,
                 )
-                return {
-                    'type': 'ir.actions.client',
-                    'tag': 'display_notification',
-                    'params': {
-                        'title': 'BOM Flexible Guardada',
-                        'message': (
-                            f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.\n'
-                            f'📦 Las entregas existentes se mantienen sin cambios.'
-                        ),
-                        'type': 'success',
-                        'sticky': True,
+                try:
+                    result = self._create_delivery_with_flexible_bom()
+                    if result.get('success'):
+                        success_msg = (
+                            f'✅ BOM Flexible "{new_bom.code}" creada y nueva entrega generada.\n'
+                            f'📦 Nueva entrega: {result["picking_name"]}\n'
+                            f'🔒 Entregas anteriores: mantenidas sin cambios.'
+                        )
+                        return {
+                            'type': 'ir.actions.client',
+                            'tag': 'display_notification',
+                            'params': {
+                                'title': 'BOM y Entrega Creados',
+                                'message': success_msg,
+                                'type': 'success',
+                                'sticky': True,
+                            }
+                        }
+                    else:
+                        return {
+                            'type': 'ir.actions.client',
+                            'tag': 'display_notification',
+                            'params': {
+                                'title': 'BOM Creada - Error en Entrega',
+                                'message': (
+                                    f'✅ BOM "{new_bom.code}" creada.\n'
+                                    f'⚠️ Error al crear entrega: {result.get("error", "Error desconocido")}'
+                                ),
+                                'type': 'warning',
+                                'sticky': True,
+                            }
+                        }
+                except Exception as e:
+                    _logger.error(f"Error creating delivery with toggle OFF: {str(e)}")
+                    return {
+                        'type': 'ir.actions.client',
+                        'tag': 'display_notification',
+                        'params': {
+                            'title': 'BOM Creada - Error en Entrega',
+                            'message': f'✅ BOM creada.\n⚠️ Error en entrega: {str(e)}',
+                            'type': 'warning',
+                            'sticky': True,
+                        }
                     }
-                }
 
             # Toggle ON: cancel existing deliveries and recreate with new BOM
             try:
