@@ -16,14 +16,17 @@
                             <!-- Delivery cancellation section for confirmed orders -->
                             <div class="row" invisible="not order_confirmed">
                                 <div class="col-12">
-                                    <label for="cancel_existing_deliveries" class="o_form_label">Cancelar Entregas Existentes</label>
-                                    <field name="cancel_existing_deliveries" widget="boolean_toggle" readonly="has_active_deliveries"/>
-                                    <small class="text-muted d-block" invisible="has_active_deliveries">
-                                        Si está activado, las entregas existentes se cancelarán al crear la BOM y se generará una nueva entrega con los componentes personalizados.
+                                    <label for="cancel_existing_deliveries" class="o_form_label">Cancelar y Recrear Entregas Existentes</label>
+                                    <field name="cancel_existing_deliveries" widget="boolean_toggle"/>
+                                    <small class="text-muted d-block" invisible="cancel_existing_deliveries">
+                                        <strong>🔒 Mantener entregas:</strong> Solo se guarda la BOM flexible. Las entregas existentes no se modifican.
                                     </small>
-                                    <small class="text-danger d-block" invisible="not has_active_deliveries">
-                                        <strong>⛔ Esta orden tiene entregas activas.</strong>
-                                        La cancelación previa es obligatoria: crear una entrega nueva sin cancelar las anteriores deja dos sets paralelos de movimientos sobre la misma línea y rompe el flujo de despacho.
+                                    <small class="text-muted d-block" invisible="not cancel_existing_deliveries">
+                                        <strong>🔄 Cancelar y recrear:</strong> Las entregas activas se cancelarán y se generará una nueva entrega con los componentes de la BOM personalizada.
+                                    </small>
+                                    <small class="text-warning d-block" invisible="not (has_active_deliveries and cancel_existing_deliveries)">
+                                        <strong>⚠️ Esta orden tiene entregas activas.</strong>
+                                        Se cancelarán antes de crear la nueva entrega con la BOM personalizada.
                                     </small>
                                 </div>
                             </div>

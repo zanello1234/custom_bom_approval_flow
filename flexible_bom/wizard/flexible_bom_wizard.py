@@ -290,39 +290,40 @@ class FlexibleBomWizard(models.TransientModel):
         # Store created BOM
         self.created_bom_id = new_bom.id
         
-        # For confirmed orders, also create delivery
+        # For confirmed orders, manage deliveries according to toggle
         if self.order_confirmed:
-            # SAFETY: when active pickings exist they MUST be cancelled before
-            # exploding the new flexible BOM. Skipping cancellation leaves the
-            # original kit moves in place and the new explosion creates a
-            # parallel set of moves on the same sale.order.line, which later
-            # surfaces as the cryptic "stock.move(<ids>...)" error in the UI.
-            self._compute_has_active_deliveries()
-            force_cancel = self.has_active_deliveries and not self.cancel_existing_deliveries
-            if force_cancel:
-                _logger.warning(
-                    "🛡️ Forcing delivery cancellation on SO %s: user unchecked "
-                    "cancel_existing_deliveries but %s has active pickings. "
-                    "Proceeding without cancellation would cause double BOM "
-                    "explosion on the same sale order line.",
-                    self.sale_order_line_id.order_id.name,
+            if not self.cancel_existing_deliveries:
+                # Toggle OFF: user wants to keep existing deliveries unchanged.
+                # Only the BOM is saved; no delivery is cancelled or created.
+                # This avoids parallel move sets on the same sale order line.
+                _logger.info(
+                    "cancel_existing_deliveries=False: BOM saved, deliveries unchanged for SO %s",
                     self.sale_order_line_id.order_id.name,
                 )
-                self.cancel_existing_deliveries = True
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {
+                        'title': 'BOM Flexible Guardada',
+                        'message': (
+                            f'✅ BOM Flexible "{new_bom.code}" creada exitosamente.\n'
+                            f'📦 Las entregas existentes se mantienen sin cambios.'
+                        ),
+                        'type': 'success',
+                        'sticky': True,
+                    }
+                }
 
-            # Cancel existing deliveries first
-            if self.cancel_existing_deliveries:
-                try:
-                    delivery_message = self._cancel_existing_deliveries()
-                    _logger.info(f"Delivery cancellation completed with message: {delivery_message}")
-                except Exception as e:
-                    error_msg = f"Error durante cancelación de entregas: {str(e)}"
-                    _logger.error(error_msg)
+            # Toggle ON: cancel existing deliveries and recreate with new BOM
+            try:
+                delivery_message = self._cancel_existing_deliveries()
+                _logger.info(f"Delivery cancellation completed with message: {delivery_message}")
+            except Exception as e:
+                error_msg = f"Error durante cancelación de entregas: {str(e)}"
+                _logger.error(error_msg)
 
-            # Last-line guard: if active pickings still remain at this point
-            # (cancellation failed silently for some reason), refuse to create
-            # a new delivery instead of producing a corrupt parallel set of
-            # moves. Surface a clear UserError so the operator can investigate.
+            # Guard: if pickings still remain after cancellation, refuse to create
+            # a new delivery to avoid parallel move sets on the same sale order line.
             remaining = self.env['stock.picking'].search_count([
                 ('origin', '=', self.sale_order_line_id.order_id.name),
                 ('state', 'not in', ['done', 'cancel']),
@@ -332,20 +333,18 @@ class FlexibleBomWizard(models.TransientModel):
                     "No se puede generar la nueva entrega para la orden %s: "
                     "quedan %s pickings activos que no pudieron cancelarse. "
                     "Revisá manualmente las entregas existentes (cancelalas o "
-                    "validalas) antes de reintentar la creación de la BOM "
-                    "flexible. Crear una entrega adicional con la nueva BOM "
-                    "dejaría dos sets paralelos de movimientos sobre la misma "
-                    "línea de venta."
+                    "validalas) antes de reintentar, o desactivá el toggle para "
+                    "conservar las entregas actuales sin recrearlas."
                 ) % (self.sale_order_line_id.order_id.name, remaining))
 
-            # Create new delivery
+            # Create new delivery with flexible BOM
             try:
                 result = self._create_delivery_with_flexible_bom()
                 if result.get('success'):
                     success_msg = f'✅ BOM Flexible "{new_bom.code}" creada y nueva entrega generada exitosamente.'
                     if result.get('picking_name'):
                         success_msg += f'\n📦 Nueva entrega: {result["picking_name"]}'
-                    
+
                     return {
                         'type': 'ir.actions.client',
                         'tag': 'display_notification',
@@ -359,7 +358,7 @@ class FlexibleBomWizard(models.TransientModel):
                 else:
                     error_msg = f'✅ BOM "{new_bom.code}" creada exitosamente'
                     error_msg += f'\n⚠️ Error en entrega: {result.get("error", "Error desconocido")}'
-                    
+
                     return {
                         'type': 'ir.actions.client',
                         'tag': 'display_notification',
