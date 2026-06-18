@@ -270,9 +270,19 @@ class FlexibleBomWizard(models.TransientModel):
             'code': bom_code,
         }
         
-        new_bom = self.env['mrp.bom'].create(bom_vals)
-        
-        # Create BOM lines
+        # Reuse the line's existing flexible BOM instead of creating a brand-new
+        # record on every customization. Creating a new BOM each time made the
+        # sale order line accumulate stock moves pointing to several phantom
+        # BOMs, which later breaks core's _compute_qty_delivered with
+        # "Expected singleton: mrp.bom(...)".
+        new_bom = self.sale_order_line_id.flexible_bom_id
+        if new_bom and new_bom.is_flexible_bom:
+            new_bom.bom_line_ids.unlink()
+            new_bom.write(bom_vals)
+        else:
+            new_bom = self.env['mrp.bom'].create(bom_vals)
+
+        # (Re)create BOM lines
         for bom_line in self.bom_line_ids:
             self.env['mrp.bom.line'].create({
                 'bom_id': new_bom.id,
