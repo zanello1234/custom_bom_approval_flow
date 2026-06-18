@@ -128,6 +128,15 @@ class MrpBom(models.Model):
         Always returns a defaultdict so that callers indexing with an
         unknown product receive an empty mrp.bom recordset rather than
         a KeyError.
+
+        IMPORTANT: the flexible BOM must only be returned for the product it
+        actually belongs to. Mapping it to *every* product makes mrp.bom
+        ``explode()`` treat each kit component as the same phantom kit, which
+        recurses into itself indefinitely until the worker hits the 900s time
+        limit and Odoo reloads it. We therefore match by variant
+        (``product_id``) or, for template-level BOMs, by template
+        (``product_tmpl_id``); any other product keeps the empty recordset
+        provided by the defaultdict.
         """
         result = defaultdict(lambda: self.env['mrp.bom'])
         if products_iter is None:
@@ -136,5 +145,12 @@ class MrpBom(models.Model):
         iterable = products_iter if hasattr(products_iter, '__iter__') \
             else [products_iter]
         for prod in iterable:
-            result[prod] = flexible_bom
+            if flexible_bom.product_id:
+                # BOM tied to a specific variant: only that variant matches.
+                if prod == flexible_bom.product_id:
+                    result[prod] = flexible_bom
+            elif prod.product_tmpl_id == flexible_bom.product_tmpl_id:
+                # Template-level BOM: match any variant of the same template.
+                result[prod] = flexible_bom
+            # else: leave the empty recordset -> stops the explode() recursion
         return result
